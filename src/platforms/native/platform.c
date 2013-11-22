@@ -98,11 +98,25 @@ int platform_init(void)
 	 * to release the device from reset if this floats. */
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
 			GPIO_CNF_OUTPUT_PUSHPULL, GPIO7);
-	/* Enable SRST output */
-	gpio_set_val(SRST_PORT, SRST_PIN, platform_hwversion() > 0);
+	/* Enable SRST output. Original uses a NPN to pull down, so setting the
+	 * output HIGH asserts. Mini is directly connected so use open drain output
+	 * and set LOW to assert.
+	 */
+	platform_srst_set_val(false);
 	gpio_set_mode(SRST_PORT, GPIO_MODE_OUTPUT_50_MHZ,
-			GPIO_CNF_OUTPUT_PUSHPULL,
+			(platform_hwversion() == 0
+				? GPIO_CNF_OUTPUT_PUSHPULL
+				: GPIO_CNF_OUTPUT_OPENDRAIN),
 			SRST_PIN);
+
+        /* Enable internal pull-up on PWR_BR so that we don't drive
+           TPWR locally or inadvertently supply power to the target. */
+        if (platform_hwversion () > 0) {
+          gpio_set (PWR_BR_PORT, PWR_BR_PIN);
+          gpio_set_mode(PWR_BR_PORT, GPIO_MODE_INPUT,
+                        GPIO_CNF_INPUT_PULL_UPDOWN,
+                        PWR_BR_PIN);
+        }
 
 	/* Setup heartbeat timer */
 	systick_set_clocksource(STK_CTRL_CLKSOURCE_AHB_DIV8);
@@ -263,15 +277,15 @@ const char *platform_target_voltage(void)
 		return gpio_get(GPIOB, GPIO0) ? "OK" : "ABSENT!";
 
 	static char ret[] = "0.0V";
-	const u8 channel = 8;
-	adc_set_regular_sequence(ADC1, 1, (u8*)&channel);
+	const uint8_t channel = 8;
+	adc_set_regular_sequence(ADC1, 1, (uint8_t*)&channel);
 
 	adc_start_conversion_direct(ADC1);
 
 	/* Wait for end of conversion. */
 	while (!adc_eoc(ADC1));
 
-	u32 val = adc_read_regular(ADC1) * 99; /* 0-4095 */
+	uint32_t val = adc_read_regular(ADC1) * 99; /* 0-4095 */
 	ret[0] = '0' + val / 81910;
 	ret[2] = '0' + (val / 8191) % 10;
 
