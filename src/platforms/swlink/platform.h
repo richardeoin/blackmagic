@@ -36,8 +36,10 @@
 #define CDCACM_PACKET_SIZE 	64
 #define BOARD_IDENT             "Black Magic Probe (SWLINK), (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
 #define BOARD_IDENT_DFU		"Black Magic (Upgrade), STM8S Discovery, (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
+#define BOARD_IDENT_UPD		"Black Magic (DFU Upgrade), STM8S Discovery, (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
 #define DFU_IDENT               "Black Magic Firmware Upgrade (SWLINK)"
 #define DFU_IFACE_STRING	"@Internal Flash   /0x08000000/8*001Ka,56*001Kg"
+#define UPD_IFACE_STRING	"@Internal Flash   /0x08000000/8*001Kg"
 
 extern usbd_device *usbdev;
 #define CDCACM_GDB_ENDPOINT	1
@@ -106,20 +108,24 @@ extern usbd_device *usbdev;
  */
 #define IRQ_PRI_USB		(2 << 4)
 #define IRQ_PRI_USBUSART	(1 << 4)
+#define IRQ_PRI_USBUSART_TIM	(3 << 4)
 #define IRQ_PRI_USB_VBUS	(14 << 4)
 #define IRQ_PRI_TRACE		(0 << 4)
 
 #define USBUSART USART1
 #define USBUSART_CR1 USART1_CR1
 #define USBUSART_IRQ NVIC_USART1_IRQ
-#define USBUSART_APB_ENR RCC_APB2ENR
-#define USBUSART_CLK_ENABLE  RCC_APB2ENR_USART1EN
+#define USBUSART_CLK RCC_USART1
 #define USBUSART_PORT GPIOB
 #define USBUSART_TX_PIN GPIO6
 #define USBUSART_ISR usart1_isr
+#define USBUSART_TIM TIM4
+#define USBUSART_TIM_CLK_EN() rcc_periph_clock_enable(RCC_TIM4)
+#define USBUSART_TIM_IRQ NVIC_TIM4_IRQ
+#define USBUSART_TIM_ISR tim4_isr
 
 #define TRACE_TIM TIM2
-#define TRACE_TIM_CLK_EN() rcc_peripheral_enable_clock(&RCC_APB1ENR, RCC_APB1ENR_TIM2EN)
+#define TRACE_TIM_CLK_EN() rcc_periph_clock_enable(RCC_TIM2)
 #define TRACE_IRQ   NVIC_TIM2_IRQ
 #define TRACE_ISR   tim2_isr
 #define TRACE_IC_IN TIM_IC_IN_TI2

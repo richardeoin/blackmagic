@@ -36,8 +36,10 @@
 #define CDCACM_PACKET_SIZE 	64
 #define BOARD_IDENT             "Black Magic Probe (STLINK), (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
 #define BOARD_IDENT_DFU		"Black Magic (Upgrade) for STLink/Discovery, (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
+#define BOARD_IDENT_UPD		"Black Magic (DFU Upgrade) for STLink/Discovery, (Firmware 1.5" VERSION_SUFFIX ", build " BUILDDATE ")"
 #define DFU_IDENT               "Black Magic Firmware Upgrade (STLINK)"
 #define DFU_IFACE_STRING	"@Internal Flash   /0x08000000/8*001Ka,56*001Kg"
+#define UPD_IFACE_STRING	"@Internal Flash   /0x08000000/8*001Kg"
 
 extern usbd_device *usbdev;
 #define CDCACM_GDB_ENDPOINT	1
@@ -114,17 +116,21 @@ extern usbd_device *usbdev;
  */
 #define IRQ_PRI_USB		(2 << 4)
 #define IRQ_PRI_USBUSART	(1 << 4)
+#define IRQ_PRI_USBUSART_TIM	(3 << 4)
 #define IRQ_PRI_USB_VBUS	(14 << 4)
 #define IRQ_PRI_TIM3		(0 << 4)
 
 #define USBUSART USART2
 #define USBUSART_CR1 USART2_CR1
 #define USBUSART_IRQ NVIC_USART2_IRQ
-#define USBUSART_APB_ENR RCC_APB1ENR
-#define USBUSART_CLK_ENABLE  RCC_APB1ENR_USART2EN
+#define USBUSART_CLK RCC_USART2
 #define USBUSART_PORT GPIOA
 #define USBUSART_TX_PIN GPIO2
 #define USBUSART_ISR usart2_isr
+#define USBUSART_TIM TIM4
+#define USBUSART_TIM_CLK_EN() rcc_periph_clock_enable(RCC_TIM4)
+#define USBUSART_TIM_IRQ NVIC_TIM4_IRQ
+#define USBUSART_TIM_ISR tim4_isr
 
 #define DEBUG(...)
 

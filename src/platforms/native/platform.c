@@ -68,11 +68,11 @@ int platform_init(void)
 	rcc_clock_setup_in_hse_8mhz_out_72mhz();
 
 	/* Enable peripherals */
-	rcc_peripheral_enable_clock(&RCC_APB1ENR, RCC_APB1ENR_USBEN);
-	rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_IOPAEN);
-	rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_IOPBEN);
-	rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_AFIOEN);
-	rcc_peripheral_enable_clock(&RCC_AHBENR, RCC_AHBENR_CRCEN);
+	rcc_periph_clock_enable(RCC_USB);
+	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_GPIOB);
+	rcc_periph_clock_enable(RCC_AFIO);
+	rcc_periph_clock_enable(RCC_CRC);
 
 	/* Setup GPIO ports */
 	gpio_clear(USB_PU_PORT, USB_PU_PIN);
@@ -119,14 +119,12 @@ int platform_init(void)
         }
 
 	/* Setup heartbeat timer */
-	systick_set_clocksource(STK_CTRL_CLKSOURCE_AHB_DIV8);
+	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
 	systick_set_reload(900000);	/* Interrupt us at 10 Hz */
 	SCB_SHPR(11) &= ~((15 << 4) & 0xff);
 	SCB_SHPR(11) |= ((14 << 4) & 0xff);
 	systick_interrupt_enable();
 	systick_counter_enable();
-
-	usbuart_init();
 
 	if (platform_hwversion() > 0) {
 		adc_init();
@@ -139,6 +137,7 @@ int platform_init(void)
 	SCB_VTOR = 0x2000;	// Relocate interrupt vector table here
 
 	cdcacm_init();
+	usbuart_init();
 
 	jtag_scan(NULL);
 
@@ -153,7 +152,13 @@ void platform_srst_set_val(bool assert)
 		gpio_set_val(SRST_PORT, SRST_PIN, !assert);
 	}
 }
-
+bool platform_target_get_power(void) {
+	return gpio_get(PWR_BR_PORT, PWR_BR_PIN);
+}
+void platform_target_set_power(bool power)
+{
+	gpio_set_val(PWR_BR_PORT, PWR_BR_PIN, !power);
+}
 void platform_delay(uint32_t delay)
 {
 	timeout_counter = delay;
@@ -249,7 +254,7 @@ static void morse_update(void)
 
 static void adc_init(void)
 {
-	rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_ADC1EN);
+	rcc_periph_clock_enable(RCC_ADC1);
 
 	gpio_set_mode(GPIOB, GPIO_MODE_INPUT,
 			GPIO_CNF_INPUT_ANALOG, GPIO0);
