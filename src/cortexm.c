@@ -386,6 +386,7 @@ cortexm_probe(struct target_s *target)
 	PROBE(nrf51_probe);
 	PROBE(samd20_probe);
 	PROBE(lmi_probe);
+	PROBE(kinetis_probe);
 #undef PROBE
 
 	return true;
@@ -970,7 +971,7 @@ static int cortexm_hostio_request(target *t)
 	case SYS_OPEN:{	/* open */
 		/* Translate stupid fopen modes to open flags.
 		 * See DUI0471C, Table 8-3 */
-                const uint32_t flags[] = {
+		const uint32_t flags[] = {
 			FILEIO_O_RDONLY,	/* r, rb */
 			FILEIO_O_RDWR,		/* r+, r+b */
 			FILEIO_O_WRONLY | FILEIO_O_CREAT | FILEIO_O_TRUNC,/*w*/
