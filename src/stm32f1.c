@@ -59,8 +59,10 @@ static const char stm32f1_driver_str[] = "STM32, Medium density.";
 static const char stm32hd_driver_str[] = "STM32, High density.";
 static const char stm32f3_driver_str[] = "STM32F3xx";
 static const char stm32f03_driver_str[] = "STM32F03x";
+static const char stm32f04_driver_str[] = "STM32F04x";
 static const char stm32f05_driver_str[] = "STM32F05x";
 static const char stm32f07_driver_str[] = "STM32F07x";
+static const char stm32f09_driver_str[] = "STM32F09x";
 
 static const char stm32f1_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 /*	"<!DOCTYPE memory-map "
@@ -192,18 +194,26 @@ bool stm32f1_probe(struct target_s *target)
 
 	target->idcode = adiv5_ap_mem_read(adiv5_target_ap(target), DBGMCU_IDCODE_F0) & 0xfff;
 	switch(target->idcode) {
-	case 0x444:  /* STM32F03 */
-	case 0x440:  /* STM32F05 */
-	case 0x448:  /* STM32F07 */
+	case 0x444:  /* STM32F03 RM0091 Rev.7 */
+	case 0x445:  /* STM32F04 RM0091 Rev.7 */
+	case 0x440:  /* STM32F05 RM0091 Rev.7 */
+	case 0x448:  /* STM32F07 RM0091 Rev.7 */
+	case 0x442:  /* STM32F09 RM0091 Rev.7 */
 		switch(target->idcode) {
 		case 0x444:  /* STM32F03 */
 			target->driver = stm32f03_driver_str;
+			break;
+		case 0x445:  /* STM32F04 */
+			target->driver = stm32f04_driver_str;
 			break;
 		case 0x440:  /* STM32F05 */
 			target->driver = stm32f05_driver_str;
 			break;
 		case 0x448:  /* STM32F07 */
 			target->driver = stm32f07_driver_str;
+			break;
+		case 0x442:  /* STM32F09 */
+			target->driver = stm32f09_driver_str;
 			break;
 		}
 		target->xml_mem_map = stm32f1_xml_memory_map;
@@ -228,7 +238,7 @@ static int stm32f1_flash_erase(struct target_s *target, uint32_t addr, int len, 
 	uint16_t sr;
 
 	addr &= ~(pagesize - 1);
-	len &= ~(pagesize - 1);
+	len = (len + pagesize - 1) & ~(pagesize - 1);
 
 	stm32f1_flash_unlock(ap);
 
@@ -273,6 +283,8 @@ static int stm32f1_flash_write(struct target_s *target, uint32_t dest,
 	ADIv5_AP_t *ap = adiv5_target_ap(target);
 	uint32_t offset = dest % 4;
 	uint32_t words = (offset + len + 3) / 4;
+	if (words > 256)
+		return -1;
 	uint32_t data[2 + words];
 
 	/* Construct data buffer used by stub */
@@ -284,7 +296,7 @@ static int stm32f1_flash_write(struct target_s *target, uint32_t dest,
 
 	/* Write stub and data to target ram and set PC */
 	target_mem_write_words(target, 0x20000000, (void*)stm32f1_flash_write_stub, 0x2C);
-	target_mem_write_words(target, 0x2000002C, data, len + 8);
+	target_mem_write_words(target, 0x2000002C, data, sizeof(data));
 	target_pc_write(target, 0x20000000);
 	if(target_check_error(target))
 		return -1;

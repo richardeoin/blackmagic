@@ -22,6 +22,8 @@
  * implementation.
  */
 
+#include "platform.h"
+
 #include <libopencm3/stm32/f1/rcc.h>
 #include <libopencm3/cm3/systick.h>
 #include <libopencm3/cm3/scb.h>
@@ -31,7 +33,6 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/stm32/f1/adc.h>
 
-#include "platform.h"
 #include "jtag_scan.h"
 #include <usbuart.h>
 
@@ -109,14 +110,13 @@ int platform_init(void)
 				: GPIO_CNF_OUTPUT_OPENDRAIN),
 			SRST_PIN);
 
-        /* Enable internal pull-up on PWR_BR so that we don't drive
-           TPWR locally or inadvertently supply power to the target. */
-        if (platform_hwversion () > 0) {
-          gpio_set (PWR_BR_PORT, PWR_BR_PIN);
-          gpio_set_mode(PWR_BR_PORT, GPIO_MODE_INPUT,
-                        GPIO_CNF_INPUT_PULL_UPDOWN,
-                        PWR_BR_PIN);
-        }
+	/* Enable internal pull-up on PWR_BR so that we don't drive
+	   TPWR locally or inadvertently supply power to the target. */
+	if (platform_hwversion () > 0) {
+		gpio_set (PWR_BR_PORT, PWR_BR_PIN);
+		gpio_set_mode(PWR_BR_PORT, GPIO_MODE_INPUT,
+		              GPIO_CNF_INPUT_PULL_UPDOWN, PWR_BR_PIN);
+	}
 
 	/* Setup heartbeat timer */
 	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
@@ -133,15 +133,16 @@ int platform_init(void)
 		gpio_set_mode(GPIOB, GPIO_MODE_INPUT,
 				GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0);
 	}
-
-	SCB_VTOR = 0x2000;	// Relocate interrupt vector table here
+	/* Relocate interrupt vector table here */
+	SCB_VTOR = 0x2000;
 
 	cdcacm_init();
 	usbuart_init();
 
-	// Set recovery point
+	/* Set recovery point */
 	if (setjmp(fatal_error_jmpbuf)) {
-		return 0; // Do nothing on failure
+		/* Do nothing on failure */
+		return 0;
 	}
 
 	jtag_scan(NULL);
@@ -158,11 +159,16 @@ void platform_srst_set_val(bool assert)
 	}
 }
 bool platform_target_get_power(void) {
-	return gpio_get(PWR_BR_PORT, PWR_BR_PIN);
+	if (platform_hwversion() > 0) {
+		return gpio_get(PWR_BR_PORT, PWR_BR_PIN);
+  	}
+	return 1; /* 1 = Unpowered */
 }
 void platform_target_set_power(bool power)
 {
-	gpio_set_val(PWR_BR_PORT, PWR_BR_PIN, !power);
+	if (platform_hwversion() > 0) {
+		gpio_set_val(PWR_BR_PORT, PWR_BR_PIN, !power);
+	}
 }
 void platform_delay(uint32_t delay)
 {

@@ -384,7 +384,10 @@ cortexm_probe(struct target_s *target)
 	PROBE(lpc17xx_probe);
 	PROBE(lpc43xx_probe);
 	PROBE(sam3x_probe);
+	PROBE(nrf51_probe);
+	PROBE(samd20_probe);
 	PROBE(lmi_probe);
+	PROBE(kinetis_probe);
 #undef PROBE
 
 	return true;
@@ -698,6 +701,8 @@ static int cortexm_fault_unwind(struct target_s *target)
 		/* Read stack for pre-exception registers */
 		uint32_t sp = spsel ? regs[REG_PSP] : regs[REG_MSP];
 		target_mem_read_words(target, stack, sp, sizeof(stack));
+		if (target_check_error(target))
+			return 0;
 		regs[REG_LR] = stack[5];	/* restore LR to pre-exception state */
 		regs[REG_PC] = stack[6];	/* restore PC to pre-exception state */
 
@@ -973,7 +978,7 @@ static int cortexm_hostio_request(target *t)
 	case SYS_OPEN:{	/* open */
 		/* Translate stupid fopen modes to open flags.
 		 * See DUI0471C, Table 8-3 */
-                const uint32_t flags[] = {
+		const uint32_t flags[] = {
 			FILEIO_O_RDONLY,	/* r, rb */
 			FILEIO_O_RDWR,		/* r+, r+b */
 			FILEIO_O_WRONLY | FILEIO_O_CREAT | FILEIO_O_TRUNC,/*w*/
