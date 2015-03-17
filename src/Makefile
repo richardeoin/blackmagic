@@ -9,9 +9,10 @@ endif
 
 BUILDDATE := `date +"%Y%m%d"`
 
-CFLAGS += -Wall -Wextra -Wno-pointer-sign -Wno-char-subscripts\
-	-Wno-sign-compare \
-	-O2 -std=gnu99 -g3 -DBUILDDATE=\"$(BUILDDATE)\"\
+OPT_FLAGS ?= -O2
+
+CFLAGS += -Wall -Wextra -Werror -Wno-char-subscripts\
+	$(OPT_FLAGS) -std=gnu99 -g3 -DBUILDDATE=\"$(BUILDDATE)\"\
 	-I. -Iinclude -Iplatforms/common -I$(PLATFORM_DIR) \
 	-DVERSION_SUFFIX=\"`../scripts/setlocalversion`\" -MD
 
@@ -41,6 +42,7 @@ SRC =			\
 	samd.c		\
 	stm32f1.c	\
 	stm32f4.c	\
+	stm32l0.c	\
 	stm32l1.c	\
 	swdptap.c	\
 	target.c	\

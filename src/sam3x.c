@@ -28,9 +28,9 @@
 #include "command.h"
 #include "gdb_packet.h"
 
-static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len);
+static int sam3x_flash_erase(struct target_s *target, uint32_t addr, size_t len);
 static int sam3x_flash_write(struct target_s *target, uint32_t dest,
-			const uint8_t *src, int len);
+                             const uint8_t *src, size_t len);
 
 static bool sam3x_cmd_gpnvm_get(target *t);
 static bool sam3x_cmd_gpnvm_set(target *t, int argc, char *argv[]);
@@ -148,9 +148,7 @@ static const char sam4s_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 
 bool sam3x_probe(struct target_s *target)
 {
-	ADIv5_AP_t *ap = adiv5_target_ap(target);
-
-	target->idcode = adiv5_ap_mem_read(ap, SAM3X_CHIPID_CIDR);
+	target->idcode = target_mem_read32(target, SAM3X_CHIPID_CIDR);
 
 	/* FIXME: Check for all variants with similar flash interface */
 	switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
@@ -165,7 +163,7 @@ bool sam3x_probe(struct target_s *target)
 		return true;
 	}
 
-	target->idcode = adiv5_ap_mem_read(ap, SAM3N_CHIPID_CIDR);
+	target->idcode = target_mem_read32(target, SAM3N_CHIPID_CIDR);
 	switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
 	case CHIPID_CIDR_ARCH_SAM3NxA | CHIPID_CIDR_EPROC_CM3:
 	case CHIPID_CIDR_ARCH_SAM3NxB | CHIPID_CIDR_EPROC_CM3:
@@ -177,21 +175,21 @@ bool sam3x_probe(struct target_s *target)
 		target_add_commands(target, sam3x_cmd_list, "SAM3N");
 		return true;
 	}
-    
-    target->idcode = adiv5_ap_mem_read(ap, SAM3S_CHIPID_CIDR);
-    switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
-        case CHIPID_CIDR_ARCH_SAM3SxA | CHIPID_CIDR_EPROC_CM3:
-        case CHIPID_CIDR_ARCH_SAM3SxB | CHIPID_CIDR_EPROC_CM3:
-        case CHIPID_CIDR_ARCH_SAM3SxC | CHIPID_CIDR_EPROC_CM3:
-            target->driver = "Atmel SAM3S";
-            target->xml_mem_map = sam3n_xml_memory_map;
-            target->flash_erase = sam3x_flash_erase;
-            target->flash_write = sam3x_flash_write;
-            target_add_commands(target, sam3x_cmd_list, "SAM3S");
-            return true;
-    }
 
-	target->idcode = adiv5_ap_mem_read(ap, SAM4S_CHIPID_CIDR);
+	target->idcode = target_mem_read32(target, SAM3S_CHIPID_CIDR);
+	switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
+	case CHIPID_CIDR_ARCH_SAM3SxA | CHIPID_CIDR_EPROC_CM3:
+	case CHIPID_CIDR_ARCH_SAM3SxB | CHIPID_CIDR_EPROC_CM3:
+	case CHIPID_CIDR_ARCH_SAM3SxC | CHIPID_CIDR_EPROC_CM3:
+		target->driver = "Atmel SAM3S";
+		target->xml_mem_map = sam3n_xml_memory_map;
+		target->flash_erase = sam3x_flash_erase;
+		target->flash_write = sam3x_flash_write;
+		target_add_commands(target, sam3x_cmd_list, "SAM3S");
+		return true;
+	}
+
+	target->idcode = target_mem_read32(target, SAM4S_CHIPID_CIDR);
 	switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
 	case CHIPID_CIDR_ARCH_SAM4SxA | CHIPID_CIDR_EPROC_CM4:
 	case CHIPID_CIDR_ARCH_SAM4SxB | CHIPID_CIDR_EPROC_CM4:
@@ -210,18 +208,16 @@ bool sam3x_probe(struct target_s *target)
 static int
 sam3x_flash_cmd(struct target_s *target, uint32_t base, uint8_t cmd, uint16_t arg)
 {
-	ADIv5_AP_t *ap = adiv5_target_ap(target);
-
 	DEBUG("%s: base = 0x%08x cmd = 0x%02X, arg = 0x%06X\n",
 		__func__, base, cmd, arg);
-	adiv5_ap_mem_write(ap, EEFC_FCR(base),
-			EEFC_FCR_FKEY | cmd | ((uint32_t)arg << 8));
+	target_mem_write32(target, EEFC_FCR(base),
+	                   EEFC_FCR_FKEY | cmd | ((uint32_t)arg << 8));
 
-	while(!(adiv5_ap_mem_read(ap, EEFC_FSR(base)) & EEFC_FSR_FRDY))
+	while (!(target_mem_read32(target, EEFC_FSR(base)) & EEFC_FSR_FRDY))
 		if(target_check_error(target))
 			return -1;
 
-	uint32_t sr = adiv5_ap_mem_read(ap, EEFC_FSR(base));
+	uint32_t sr = target_mem_read32(target, EEFC_FSR(base));
 	return sr & EEFC_FSR_ERROR;
 }
 
@@ -285,7 +281,7 @@ sam3x_flash_base(struct target_s *target, uint32_t addr, uint32_t *offset)
 	return SAM3N_EEFC_BASE;
 }
 
-static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len)
+static int sam3x_flash_erase(struct target_s *target, uint32_t addr, size_t len)
 {
 	uint32_t offset;
 	uint32_t base = sam3x_flash_base(target, addr, &offset);
@@ -326,7 +322,7 @@ static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len)
 
 	memset(buf, 0xff, sizeof(buf));
 	/* Only do this once, since it doesn't change. */
-	target_mem_write_words(target, addr, (void*)buf, SAM3_PAGE_SIZE);
+	target_mem_write(target, addr, buf, SAM3_PAGE_SIZE);
 
 	while (len) {
 		if(sam3x_flash_cmd(target, base, EEFC_FCR_FCMD_EWP, chunk))
@@ -341,7 +337,7 @@ static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len)
 }
 
 static int sam3x_flash_write(struct target_s *target, uint32_t dest,
-			  const uint8_t *src, int len)
+                             const uint8_t *src, size_t len)
 {
 	unsigned page_size;
 	if (strcmp(target->driver, "Atmel SAM4S") == 0) {
@@ -359,7 +355,7 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 
 	for (unsigned chunk = first_chunk; chunk <= last_chunk; chunk++) {
 
-		DEBUG("chunk %u len %d\n", chunk, len);
+		DEBUG("chunk %u len %zu\n", chunk, len);
 		/* first and last chunk may require special handling */
 		if ((chunk == first_chunk) || (chunk == last_chunk)) {
 
@@ -367,7 +363,7 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 			memset(buf, 0xff, sizeof(buf));
 
 			/* copy as much as fits */
-			int copylen = page_size - offset;
+			size_t copylen = page_size - offset;
 			if (copylen > len)
 				copylen = len;
 			memcpy(&buf[offset], src, copylen);
@@ -384,7 +380,7 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 			src += page_size;
 		}
 
-		target_mem_write_words(target, dest, (void*)buf, page_size);
+		target_mem_write(target, dest, buf, page_size);
 		if(sam3x_flash_cmd(target, base, EEFC_FCR_FCMD_WP, chunk))
 			return -1;
 	}
@@ -394,11 +390,10 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 
 static bool sam3x_cmd_gpnvm_get(target *t)
 {
-	ADIv5_AP_t *ap = adiv5_target_ap(t);
 	uint32_t base = sam3x_flash_base(t, 0, NULL);
 
 	sam3x_flash_cmd(t, base, EEFC_FCR_FCMD_GGPB, 0);
-	gdb_outf("GPNVM: 0x%08X\n", adiv5_ap_mem_read(ap, EEFC_FRR(base)));
+	gdb_outf("GPNVM: 0x%08X\n", target_mem_read32(t, EEFC_FRR(base)));
 
 	return true;
 }
