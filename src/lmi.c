@@ -31,9 +31,9 @@
 #include "adiv5.h"
 #include "target.h"
 
-static int lmi_flash_erase(struct target_s *target, uint32_t addr, int len);
+static int lmi_flash_erase(struct target_s *target, uint32_t addr, size_t len);
 static int lmi_flash_write(struct target_s *target, uint32_t dest,
-			  const uint8_t *src, int len);
+			  const uint8_t *src, size_t len);
 
 static const char lmi_driver_str[] = "TI Stellaris/Tiva";
 
@@ -100,7 +100,7 @@ static const uint16_t lmi_flash_write_stub[] = {
 
 bool lmi_probe(struct target_s *target)
 {
-	uint32_t did1 = adiv5_ap_mem_read(adiv5_target_ap(target), 0x400FE004);
+	uint32_t did1 = target_mem_read32(target, 0x400FE004);
 	switch (did1 >> 16) {
 	case 0x1049:	/* LM3S3748 */
 		target->driver = lmi_driver_str;
@@ -119,7 +119,7 @@ bool lmi_probe(struct target_s *target)
 	return false;
 }
 
-int lmi_flash_erase(struct target_s *target, uint32_t addr, int len)
+int lmi_flash_erase(struct target_s *target, uint32_t addr, size_t len)
 {
 	ADIv5_AP_t *ap = adiv5_target_ap(target);
 	uint32_t tmp;
@@ -131,17 +131,18 @@ int lmi_flash_erase(struct target_s *target, uint32_t addr, int len)
 	adiv5_ap_write(ap, 0x00, 0xA2000052);
 
 	/* select Flash Control */
-	adiv5_dp_low_access(ap->dp, 1, 0, 0x04, 0x400FD000);
+	adiv5_dp_low_access(ap->dp, ADIV5_LOW_WRITE, 0x04, 0x400FD000);
 
 	while(len) {
 		/* write address to FMA */
-		adiv5_ap_write(ap, 0x10, addr); /* Required to switch banks */
+		adiv5_ap_write(ap, ADIV5_AP_DB(0), addr); /* Required to switch banks */
 		/* set ERASE bit in FMC */
-		adiv5_dp_low_access(ap->dp, 1, 0, 0x08, 0xA4420002);
+		adiv5_dp_low_access(ap->dp, ADIV5_LOW_WRITE, ADIV5_AP_DB(2), 0xA4420002);
 		/* Read FMC to poll for ERASE bit */
-		adiv5_dp_low_access(ap->dp, 1, 1, 0x08, 0);
+		adiv5_dp_low_access(ap->dp, ADIV5_LOW_READ, ADIV5_AP_DB(2), 0);
 		do {
-			tmp = adiv5_dp_low_access(ap->dp, 1, 1, 0x08, 0);
+			tmp = adiv5_dp_low_access(ap->dp, ADIV5_LOW_READ,
+			                          ADIV5_AP_DB(2), 0);
 		} while (tmp & 2);
 
 		len -= 0x400;
@@ -151,16 +152,16 @@ int lmi_flash_erase(struct target_s *target, uint32_t addr, int len)
 }
 
 int lmi_flash_write(struct target_s *target, uint32_t dest,
-			  const uint8_t *src, int len)
+                    const uint8_t *src, size_t len)
 {
 	uint32_t data[(len>>2)+2];
 	data[0] = dest;
 	data[1] = len >> 2;
 	memcpy(&data[2], src, len);
 	DEBUG("Sending stub\n");
-	target_mem_write_words(target, 0x20000000, (void*)lmi_flash_write_stub, 0x30);
+	target_mem_write(target, 0x20000000, (void*)lmi_flash_write_stub, 0x30);
 	DEBUG("Sending data\n");
-	target_mem_write_words(target, 0x20000030, data, len + 8);
+	target_mem_write(target, 0x20000030, data, len + 8);
 	DEBUG("Running stub\n");
 	target_pc_write(target, 0x20000000);
 	target_halt_resume(target, 0);

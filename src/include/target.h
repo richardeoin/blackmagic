@@ -48,24 +48,11 @@ target *target_attach(target *t, target_destroy_callback destroy_cb);
 	(target)->check_error(target)
 
 /* Memory access functions */
-#define target_mem_read_words(target, dest, src, len)	\
-	(target)->mem_read_words((target), (dest), (src), (len))
+#define target_mem_read(target, dest, src, len)	\
+	(target)->mem_read((target), (dest), (src), (len))
 
-#define target_mem_write_words(target, dest, src, len)	\
-	(target)->mem_write_words((target), (dest), (src), (len))
-
-#define target_mem_read_halfwords(target, dest, src, len)	\
-	(target)->mem_read_halfwords((target), (dest), (src), (len))
-
-#define target_mem_write_halfwords(target, dest, src, len)	\
-	(target)->mem_write_halfwords((target), (dest), (src), (len))
-
-#define target_mem_read_bytes(target, dest, src, len)	\
-	(target)->mem_read_bytes((target), (dest), (src), (len))
-
-#define target_mem_write_bytes(target, dest, src, len)	\
-	(target)->mem_write_bytes((target), (dest), (src), (len))
-
+#define target_mem_write(target, dest, src, len)	\
+	(target)->mem_write((target), (dest), (src), (len))
 
 /* Register access functions */
 #define target_regs_read(target, data)	\
@@ -124,7 +111,6 @@ target *target_attach(target *t, target_destroy_callback destroy_cb);
 #define target_hostio_reply(target, recode, errcode)	\
 	(target)->hostio_reply((target), (retcode), (errcode))
 
-
 struct target_s {
 	/* Notify controlling debugger if target is lost */
 	target_destroy_callback destroy_callback;
@@ -135,20 +121,10 @@ struct target_s {
 	int (*check_error)(struct target_s *target);
 
 	/* Memory access functions */
-	int (*mem_read_words)(struct target_s *target, uint32_t *dest, uint32_t src,
-				int len);
-	int (*mem_write_words)(struct target_s *target, uint32_t dest,
-				const uint32_t *src, int len);
-
-	int (*mem_read_halfwords)(struct target_s *target, uint16_t *dest, uint32_t src,
-				int len);
-	int (*mem_write_halfwords)(struct target_s *target, uint32_t dest,
-				const uint16_t *src, int len);
-
-	int (*mem_read_bytes)(struct target_s *target, uint8_t *dest, uint32_t src,
-				int len);
-	int (*mem_write_bytes)(struct target_s *target, uint32_t dest,
-				const uint8_t *src, int len);
+	void (*mem_read)(struct target_s *target, void *dest, uint32_t src,
+	                 size_t len);
+	void (*mem_write)(struct target_s *target, uint32_t dest,
+	                  const void *src, size_t len);
 
 	/* Register access functions */
 	int regs_size;
@@ -180,9 +156,9 @@ struct target_s {
 
 	/* Flash memory access functions */
 	const char *xml_mem_map;
-	int (*flash_erase)(struct target_s *target, uint32_t addr, int len);
+	int (*flash_erase)(struct target_s *target, uint32_t addr, size_t len);
 	int (*flash_write)(struct target_s *target, uint32_t dest,
-				const uint8_t *src, int len);
+	                   const uint8_t *src, size_t len);
 
 	/* Host I/O support */
 	void (*hostio_reply)(target *t, int32_t retcode, uint32_t errcode);
@@ -210,12 +186,50 @@ target *target_new(unsigned size);
 void target_list_free(void);
 void target_add_commands(target *t, const struct command_s *cmds, const char *name);
 
+static inline uint32_t target_mem_read32(target *t, uint32_t addr)
+{
+	uint32_t ret;
+	target_mem_read(t, &ret, addr, sizeof(ret));
+	return ret;
+}
+
+static inline void target_mem_write32(target *t, uint32_t addr, uint32_t value)
+{
+	target_mem_write(t, addr, &value, sizeof(value));
+}
+
+static inline uint16_t target_mem_read16(target *t, uint32_t addr)
+{
+	uint16_t ret;
+	target_mem_read(t, &ret, addr, sizeof(ret));
+	return ret;
+}
+
+static inline void target_mem_write16(target *t, uint32_t addr, uint16_t value)
+{
+	target_mem_write(t, addr, &value, sizeof(value));
+}
+
+static inline uint8_t target_mem_read8(target *t, uint32_t addr)
+{
+	uint8_t ret;
+	target_mem_read(t, &ret, addr, sizeof(ret));
+	return ret;
+}
+
+static inline void target_mem_write8(target *t, uint32_t addr, uint8_t value)
+{
+	target_mem_write(t, addr, &value, sizeof(value));
+}
+
+
 /* Probe for various targets.
  * Actual functions implemented in their respective drivers.
  */
 bool cortexm_probe(struct target_s *target);
 bool stm32f1_probe(struct target_s *target);
 bool stm32f4_probe(struct target_s *target);
+bool stm32l0_probe(struct target_s *target);
 bool stm32l1_probe(struct target_s *target);
 bool lmi_probe(struct target_s *target);
 bool lpc11xx_probe(struct target_s *target);

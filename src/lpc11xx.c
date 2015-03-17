@@ -63,9 +63,9 @@ static const char lpc8xx_driver[] = "lpc8xx";
 static const char lpc11xx_driver[] = "lpc11xx";
 static void lpc11x_iap_call(struct target_s *target, struct flash_param *param, unsigned param_len);
 static int lpc11xx_flash_prepare(struct target_s *target, uint32_t addr, int len);
-static int lpc11xx_flash_erase(struct target_s *target, uint32_t addr, int len);
+static int lpc11xx_flash_erase(struct target_s *target, uint32_t addr, size_t len);
 static int lpc11xx_flash_write(struct target_s *target, uint32_t dest, const uint8_t *src,
-			  int len);
+			  size_t len);
 
 /*
  * Note that this memory map is actually for the largest of the lpc11xx devices;
@@ -108,7 +108,7 @@ lpc11xx_probe(struct target_s *target)
 	uint32_t idcode;
 
 	/* read the device ID register */
-	idcode = adiv5_ap_mem_read(adiv5_target_ap(target), 0x400483F4);
+	idcode = target_mem_read32(target, 0x400483F4);
 
 	switch (idcode) {
 
@@ -170,7 +170,7 @@ lpc11x_iap_call(struct target_s *target, struct flash_param *param, unsigned par
 	/* fill out the remainder of the parameters and copy the structure to RAM */
 	param->opcodes[0] = 0xbe00;
 	param->opcodes[1] = 0x0000;
-	target_mem_write_words(target, IAP_RAM_BASE, (void *)param, param_len);
+	target_mem_write(target, IAP_RAM_BASE, param, param_len);
 
 	/* set up for the call to the IAP ROM */
 	target_regs_read(target, regs);
@@ -191,7 +191,7 @@ lpc11x_iap_call(struct target_s *target, struct flash_param *param, unsigned par
 	while (!target_halt_wait(target));
 
 	/* copy back just the parameters structure */
-	target_mem_read_words(target, (void *)param, IAP_RAM_BASE, sizeof(struct flash_param));
+	target_mem_read(target, param, IAP_RAM_BASE, sizeof(struct flash_param));
 }
 
 static int flash_page_size(struct target_s *target)
@@ -220,7 +220,7 @@ lpc11xx_flash_prepare(struct target_s *target, uint32_t addr, int len)
 }
 
 static int
-lpc11xx_flash_erase(struct target_s *target, uint32_t addr, int len)
+lpc11xx_flash_erase(struct target_s *target, uint32_t addr, size_t len)
 {
 
 	if (addr % flash_page_size(target))
@@ -249,7 +249,7 @@ lpc11xx_flash_erase(struct target_s *target, uint32_t addr, int len)
 }
 
 static int
-lpc11xx_flash_write(struct target_s *target, uint32_t dest, const uint8_t *src, int len)
+lpc11xx_flash_write(struct target_s *target, uint32_t dest, const uint8_t *src, size_t len)
 {
 	unsigned first_chunk = dest / IAP_PGM_CHUNKSIZE;
 	unsigned last_chunk = (dest + len - 1) / IAP_PGM_CHUNKSIZE;
@@ -258,7 +258,7 @@ lpc11xx_flash_write(struct target_s *target, uint32_t dest, const uint8_t *src, 
 
 	for (chunk = first_chunk; chunk <= last_chunk; chunk++) {
 
-		DEBUG("chunk %u len %d\n", chunk, len);
+		DEBUG("chunk %u len %zu\n", chunk, len);
 		/* first and last chunk may require special handling */
 		if ((chunk == first_chunk) || (chunk == last_chunk)) {
 
@@ -266,7 +266,7 @@ lpc11xx_flash_write(struct target_s *target, uint32_t dest, const uint8_t *src, 
 			memset(flash_pgm.data, 0xff, sizeof(flash_pgm.data));
 
 			/* copy as much as fits */
-			int copylen = IAP_PGM_CHUNKSIZE - chunk_offset;
+			size_t copylen = IAP_PGM_CHUNKSIZE - chunk_offset;
 			if (copylen > len)
 				copylen = len;
 			memcpy(&flash_pgm.data[chunk_offset], src, copylen);
