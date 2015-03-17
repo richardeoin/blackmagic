@@ -22,9 +22,6 @@
  * the device, providing the XML memory map and Flash memory programming.
  */
 
-#include <stdlib.h>
-#include <string.h>
-
 #include "general.h"
 #include "adiv5.h"
 #include "target.h"
@@ -68,9 +65,22 @@ static const char sam3n_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 	"  <memory type=\"ram\" start=\"0x20000000\" length=\"0x200000\"/>"
 	"</memory-map>";
 
+static const char sam4s_xml_memory_map[] = "<?xml version=\"1.0\"?>"
+/*	"<!DOCTYPE memory-map "
+	"             PUBLIC \"+//IDN gnu.org//DTD GDB Memory Map V1.0//EN\""
+	"                    \"http://sourceware.org/gdb/gdb-memory-map.dtd\">"*/
+	"<memory-map>"
+	"  <memory type=\"flash\" start=\"0x400000\" length=\"0x400000\">"
+	"    <property name=\"blocksize\">0x200</property>"
+	"  </memory>"
+	"  <memory type=\"rom\" start=\"0x800000\" length=\"0x400000\"/>"
+	"  <memory type=\"ram\" start=\"0x20000000\" length=\"0x400000\"/>"
+	"</memory-map>";
+
 /* Enhanced Embedded Flash Controller (EEFC) Register Map */
 #define SAM3N_EEFC_BASE 	0x400E0A00
 #define SAM3X_EEFC_BASE(x)	(0x400E0A00+((x)*0x400))
+#define SAM4S_EEFC_BASE(x)	(0x400E0A00+((x)*0x200))
 #define EEFC_FMR(base)		((base)+0x00)
 #define EEFC_FCR(base)		((base)+0x04)
 #define EEFC_FSR(base)		((base)+0x08)
@@ -83,6 +93,7 @@ static const char sam3n_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 #define EEFC_FCR_FCMD_EWP	0x03
 #define EEFC_FCR_FCMD_EWPL	0x04
 #define EEFC_FCR_FCMD_EA	0x05
+#define EEFC_FCR_FCMD_EPA	0x07
 #define EEFC_FCR_FCMD_SLB	0x08
 #define EEFC_FCR_FCMD_CLB	0x09
 #define EEFC_FCR_FCMD_GLB	0x0A
@@ -99,14 +110,19 @@ static const char sam3n_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 
 #define SAM3X_CHIPID_CIDR	0x400E0940
 #define SAM3N_CHIPID_CIDR	0x400E0740
+#define SAM3S_CHIPID_CIDR	0x400E0740
+#define SAM4S_CHIPID_CIDR	0x400E0740
 
 #define CHIPID_CIDR_VERSION_MASK	(0x1F << 0)
 #define CHIPID_CIDR_EPROC_CM3		(0x03 << 5)
+#define CHIPID_CIDR_EPROC_CM4		(0x07 << 5)
 #define CHIPID_CIDR_EPROC_MASK		(0x07 << 5)
 #define CHIPID_CIDR_NVPSIZ_MASK		(0x0F << 8)
 #define CHIPID_CIDR_NVPSIZ_128K		(0x07 << 8)
 #define CHIPID_CIDR_NVPSIZ_256K		(0x09 << 8)
 #define CHIPID_CIDR_NVPSIZ_512K		(0x0A << 8)
+#define CHIPID_CIDR_NVPSIZ_1024K	(0x0C << 8)
+#define CHIPID_CIDR_NVPSIZ_2048K	(0x0E << 8)
 #define CHIPID_CIDR_NVPSIZ2_MASK	(0x0F << 12)
 #define CHIPID_CIDR_SRAMSIZ_MASK	(0x0F << 16)
 #define CHIPID_CIDR_ARCH_MASK		(0xFF << 20)
@@ -116,12 +132,19 @@ static const char sam3n_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 #define CHIPID_CIDR_ARCH_SAM3NxA	(0x93 << 20)
 #define CHIPID_CIDR_ARCH_SAM3NxB	(0x94 << 20)
 #define CHIPID_CIDR_ARCH_SAM3NxC	(0x95 << 20)
+#define CHIPID_CIDR_ARCH_SAM3SxA	(0x88 << 20)
+#define CHIPID_CIDR_ARCH_SAM3SxB	(0x89 << 20)
+#define CHIPID_CIDR_ARCH_SAM3SxC	(0x8A << 20)
+#define CHIPID_CIDR_ARCH_SAM4SxA	(0x88 << 20)
+#define CHIPID_CIDR_ARCH_SAM4SxB	(0x89 << 20)
+#define CHIPID_CIDR_ARCH_SAM4SxC	(0x8A << 20)
 #define CHIPID_CIDR_NVPTYP_MASK		(0x07 << 28)
 #define CHIPID_CIDR_NVPTYP_FLASH	(0x02 << 28)
 #define CHIPID_CIDR_NVPTYP_ROM_FLASH	(0x03 << 28)
 #define CHIPID_CIDR_EXT			(0x01 << 31)
 
-#define PAGE_SIZE 256
+#define SAM3_PAGE_SIZE 256
+#define SAM4_PAGE_SIZE 512
 
 bool sam3x_probe(struct target_s *target)
 {
@@ -152,6 +175,32 @@ bool sam3x_probe(struct target_s *target)
 		target->flash_erase = sam3x_flash_erase;
 		target->flash_write = sam3x_flash_write;
 		target_add_commands(target, sam3x_cmd_list, "SAM3N");
+		return true;
+	}
+    
+    target->idcode = adiv5_ap_mem_read(ap, SAM3S_CHIPID_CIDR);
+    switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
+        case CHIPID_CIDR_ARCH_SAM3SxA | CHIPID_CIDR_EPROC_CM3:
+        case CHIPID_CIDR_ARCH_SAM3SxB | CHIPID_CIDR_EPROC_CM3:
+        case CHIPID_CIDR_ARCH_SAM3SxC | CHIPID_CIDR_EPROC_CM3:
+            target->driver = "Atmel SAM3S";
+            target->xml_mem_map = sam3n_xml_memory_map;
+            target->flash_erase = sam3x_flash_erase;
+            target->flash_write = sam3x_flash_write;
+            target_add_commands(target, sam3x_cmd_list, "SAM3S");
+            return true;
+    }
+
+	target->idcode = adiv5_ap_mem_read(ap, SAM4S_CHIPID_CIDR);
+	switch (target->idcode & (CHIPID_CIDR_ARCH_MASK | CHIPID_CIDR_EPROC_MASK)) {
+	case CHIPID_CIDR_ARCH_SAM4SxA | CHIPID_CIDR_EPROC_CM4:
+	case CHIPID_CIDR_ARCH_SAM4SxB | CHIPID_CIDR_EPROC_CM4:
+	case CHIPID_CIDR_ARCH_SAM4SxC | CHIPID_CIDR_EPROC_CM4:
+		target->driver = "Atmel SAM4S";
+		target->xml_mem_map = sam4s_xml_memory_map;
+		target->flash_erase = sam3x_flash_erase;
+		target->flash_write = sam3x_flash_write;
+		target_add_commands(target, sam3x_cmd_list, "SAM4S");
 		return true;
 	}
 
@@ -203,6 +252,33 @@ sam3x_flash_base(struct target_s *target, uint32_t addr, uint32_t *offset)
 		}
 	}
 
+	if (strcmp(target->driver, "Atmel SAM4S") == 0) {
+		uint32_t half = -1;
+		switch (target->idcode & CHIPID_CIDR_NVPSIZ_MASK) {
+		case CHIPID_CIDR_NVPSIZ_128K:
+		case CHIPID_CIDR_NVPSIZ_256K:
+		case CHIPID_CIDR_NVPSIZ_512K:
+			if (offset)
+				*offset = addr - 0x400000;
+			return SAM4S_EEFC_BASE(0);
+		case CHIPID_CIDR_NVPSIZ_1024K:
+			half = 0x480000;
+			break;
+		case CHIPID_CIDR_NVPSIZ_2048K:
+			half = 0x500000;
+			break;
+		}
+		if (addr >= half) {
+			if (offset)
+				*offset = addr - half;
+			return SAM4S_EEFC_BASE(1);
+		} else {
+			if (offset)
+				*offset = addr - 0x400000;
+			return SAM4S_EEFC_BASE(0);
+		}
+	}
+
 	/* SAM3N device */
 	if (offset)
 		*offset = addr - 0x400000;
@@ -213,24 +289,51 @@ static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len)
 {
 	uint32_t offset;
 	uint32_t base = sam3x_flash_base(target, addr, &offset);
-	unsigned chunk = offset / PAGE_SIZE;
-	uint8_t buf[PAGE_SIZE];
 
-	/* This device doesn't really have a page erase function.
+	/* The SAM4S is the only supported device with a page erase command.
+	 * Erasing is done in 8-page chunks. arg[15:2] contains the page
+	 * number and arg[1:0] contains 0x1, indicating 8-page chunks.
+	 */
+	if (strcmp(target->driver, "Atmel SAM4S") == 0) {
+		unsigned chunk = offset / SAM4_PAGE_SIZE;
+
+		/* Fail if the start address is not 8-page-aligned. */
+		if (chunk % 8 != 0)
+			return -1;
+
+		/* Note that the length might not be a multiple of 8 pages.
+		 * In this case, we will erase a few extra pages at the end.
+		 */
+		while (len > 0) {
+			int16_t arg = chunk | 0x1;
+			if(sam3x_flash_cmd(target, base, EEFC_FCR_FCMD_EPA, arg))
+				return -1;
+
+			len -= SAM4_PAGE_SIZE * 8;
+			addr += SAM4_PAGE_SIZE * 8;
+			chunk += 8;
+		}
+
+		return 0;
+	}
+
+	/* The SAM3X/SAM3N don't really have a page erase function.
 	 * This Erase/Write page is the best we have, so we write with all
 	 * ones.  This does waste time, but what can we do?
 	 */
+	unsigned chunk = offset / SAM3_PAGE_SIZE;
+	uint8_t buf[SAM3_PAGE_SIZE];
 
 	memset(buf, 0xff, sizeof(buf));
 	/* Only do this once, since it doesn't change. */
-	target_mem_write_words(target, addr, (void*)buf, PAGE_SIZE);
+	target_mem_write_words(target, addr, (void*)buf, SAM3_PAGE_SIZE);
 
 	while (len) {
 		if(sam3x_flash_cmd(target, base, EEFC_FCR_FCMD_EWP, chunk))
 			return -1;
 
-		len -= PAGE_SIZE;
-		addr += PAGE_SIZE;
+		len -= SAM3_PAGE_SIZE;
+		addr += SAM3_PAGE_SIZE;
 		chunk++;
 	}
 
@@ -240,12 +343,18 @@ static int sam3x_flash_erase(struct target_s *target, uint32_t addr, int len)
 static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 			  const uint8_t *src, int len)
 {
+	unsigned page_size;
+	if (strcmp(target->driver, "Atmel SAM4S") == 0) {
+	        page_size = SAM4_PAGE_SIZE;
+	} else {
+		page_size = SAM3_PAGE_SIZE;
+	}
 	uint32_t offset;
 	uint32_t base = sam3x_flash_base(target, dest, &offset);
-	uint8_t buf[PAGE_SIZE];
-	unsigned first_chunk = offset / PAGE_SIZE;
-	unsigned last_chunk = (offset + len - 1) / PAGE_SIZE;
-	offset %= PAGE_SIZE;
+	uint8_t buf[page_size];
+	unsigned first_chunk = offset / page_size;
+	unsigned last_chunk = (offset + len - 1) / page_size;
+	offset %= page_size;
 	dest -= offset;
 
 	for (unsigned chunk = first_chunk; chunk <= last_chunk; chunk++) {
@@ -258,7 +367,7 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 			memset(buf, 0xff, sizeof(buf));
 
 			/* copy as much as fits */
-			int copylen = PAGE_SIZE - offset;
+			int copylen = page_size - offset;
 			if (copylen > len)
 				copylen = len;
 			memcpy(&buf[offset], src, copylen);
@@ -270,12 +379,12 @@ static int sam3x_flash_write(struct target_s *target, uint32_t dest,
 		} else {
 
 			/* interior chunk, must be aligned and full-sized */
-			memcpy(buf, src, PAGE_SIZE);
-			len -= PAGE_SIZE;
-			src += PAGE_SIZE;
+			memcpy(buf, src, page_size);
+			len -= page_size;
+			src += page_size;
 		}
 
-		target_mem_write_words(target, dest, (void*)buf, PAGE_SIZE);
+		target_mem_write_words(target, dest, (void*)buf, page_size);
 		if(sam3x_flash_cmd(target, base, EEFC_FCR_FCMD_WP, chunk))
 			return -1;
 	}

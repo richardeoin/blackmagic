@@ -25,8 +25,6 @@
 #ifndef __TARGET_H
 #define __TARGET_H
 
-#include "general.h"
-
 typedef struct target_s target;
 
 /* The destroy callback function will be called by target_list_free() just
@@ -224,7 +222,7 @@ bool lpc11xx_probe(struct target_s *target);
 bool lpc43xx_probe(struct target_s *target);
 bool sam3x_probe(struct target_s *target);
 bool nrf51_probe(struct target_s *target);
-bool samd20_probe(struct target_s *target);
+bool samd_probe(struct target_s *target);
 bool kinetis_probe(struct target_s *target);
 
 #endif

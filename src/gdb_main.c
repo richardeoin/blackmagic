@@ -24,26 +24,15 @@
  * Originally written for GDB 6.8, updated and tested with GDB 7.2.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <assert.h>
-
-#include "platform.h"
-
 #include "general.h"
 #include "hex_utils.h"
 #include "gdb_if.h"
 #include "gdb_packet.h"
 #include "gdb_main.h"
-
 #include "jtagtap.h"
 #include "jtag_scan.h"
 #include "adiv5.h"
-
 #include "target.h"
-
 #include "command.h"
 #include "crc32.h"
 
@@ -410,8 +399,8 @@ handle_v_packet(char *packet, int plen)
                         /* If we were able to attach to the target again */
                         if (cur_target) {
                         	target_reset(cur_target);
-                                gdb_putpacketz("T05");
-                        } else  gdb_putpacketz("E01");
+                        	gdb_putpacketz("T05");
+                        } else	gdb_putpacketz("E01");
 
 		} else	gdb_putpacketz("E01");
 
@@ -501,4 +490,3 @@ handle_z_packet(char *packet, int plen)
 	else
 		gdb_putpacketz("E01");
 }
-

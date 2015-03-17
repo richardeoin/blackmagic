@@ -1,7 +1,7 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2011  Black Sphere Technologies Ltd.
+ * Copyright (C) 2015  Black Sphere Technologies Ltd.
  * Written by Gareth McMullin <gareth@blacksphere.co.nz>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,32 +18,28 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __PLATFORM_H
-#define __PLATFORM_H
+/* This file implements a the USB Communications Device Class - Abstract
+ * Control Model (CDC-ACM) as defined in CDC PSTN subclass 1.2.
+ * A Device Firmware Upgrade (DFU 1.1) class interface is provided for
+ * field firmware upgrade.
+ *
+ * The device's unique id is used as the USB serial number string.
+ */
+#ifndef __CDCACM_H
+#define __CDCACM_H
 
-#include <ftdi.h>
+#include <libopencm3/usb/usbd.h>
 
-#ifndef WIN32
-#	include <alloca.h>
-#else
-#	define alloca __builtin_alloca
-#endif
+#define CDCACM_PACKET_SIZE 	64
 
-#define FT2232_VID	0x0403
-#define FT2232_PID	0x6010
+#define CDCACM_GDB_ENDPOINT	1
+#define CDCACM_UART_ENDPOINT	3
 
-#define SET_RUN_STATE(state)
-#define SET_IDLE_STATE(state)
-#define SET_ERROR_STATE(state)
+extern usbd_device *usbdev;
 
-#define PLATFORM_FATAL_ERROR(error)	abort()
-#define PLATFORM_SET_FATAL_ERROR_RECOVERY()
-
-extern struct ftdi_context *ftdic;
-
-void platform_buffer_flush(void);
-int platform_buffer_write(const uint8_t *data, int size);
-int platform_buffer_read(uint8_t *data, int size);
+void cdcacm_init(void);
+/* Returns current usb configuration, or 0 if not configured. */
+int cdcacm_get_config(void);
+int cdcacm_get_dtr(void);
 
 #endif
-

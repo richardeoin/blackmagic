@@ -16,31 +16,20 @@ VPATH += platforms/stm32
 
 SRC += 	cdcacm.c	\
 	platform.c	\
-	usbuart.c \
+	usbuart.c 	\
+	serialno.c	\
+	timing.c	\
 
 all:	blackmagic.bin blackmagic_dfu.bin blackmagic_dfu.hex dfu_upgrade.bin dfu_upgrade.hex
 
-blackmagic.bin:	blackmagic
-	$(OBJCOPY) -O binary $^ $@
-
 blackmagic_dfu: usbdfu.o dfucore.o dfu_f1.o
-	$(CC) $^ -o $@ $(LDFLAGS_BOOT)
-
-blackmagic_dfu.bin:	blackmagic_dfu
-	$(OBJCOPY) -O binary $^ $@
-
-blackmagic_dfu.hex:	blackmagic_dfu
-	$(OBJCOPY) -O ihex $^ $@
+	@echo "  LD      $@"
+	$(Q)$(CC) $^ -o $@ $(LDFLAGS_BOOT)
 
 dfu_upgrade: dfu_upgrade.o dfucore.o dfu_f1.o
-	$(CC) $^ -o $@ $(LDFLAGS)
-
-dfu_upgrade.bin:	dfu_upgrade
-	$(OBJCOPY) -O binary $^ $@
-
-dfu_upgrade.hex:	dfu_upgrade
-	$(OBJCOPY) -O ihex $^ $@
+	@echo "  LD      $@"
+	$(Q)$(CC) $^ -o $@ $(LDFLAGS)
 
 host_clean:
-	-rm blackmagic.bin blackmagic_dfu blackmagic_dfu.bin blackmagic_dfu.hex dfu_upgrade dfu_upgrade.bin dfu_upgrade.hex
+	-$(Q)$(RM) blackmagic.bin blackmagic_dfu blackmagic_dfu.bin blackmagic_dfu.hex dfu_upgrade dfu_upgrade.bin dfu_upgrade.hex
 

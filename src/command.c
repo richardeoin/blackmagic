@@ -22,17 +22,12 @@
  * commands.
  */
 
-#include <stdlib.h>
-#include <string.h>
-
 #include "general.h"
-
 #include "command.h"
 #include "gdb_packet.h"
-
 #include "jtag_scan.h"
 #include "target.h"
-
+#include "morse.h"
 #include "adiv5.h"
 
 #ifdef PLATFORM_HAS_TRACESWO
@@ -234,7 +229,7 @@ static bool cmd_target_power(target *t, int argc, const char **argv)
 	(void)t;
 	if (argc == 1)
 		gdb_outf("Target Power: %s\n",
-			 !platform_target_get_power() ? "enabled" : "disabled");
+			 platform_target_get_power() ? "enabled" : "disabled");
 	else
 		platform_target_set_power(!strncmp(argv[1], "enable", strlen(argv[1])));
 	return true;

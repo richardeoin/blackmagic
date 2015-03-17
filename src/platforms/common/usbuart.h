@@ -1,7 +1,7 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2011  Black Sphere Technologies Ltd.
+ * Copyright (C) 2012  Black Sphere Technologies Ltd.
  * Written by Gareth McMullin <gareth@blacksphere.co.nz>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,33 +17,16 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#ifndef __USBUART_H
+#define __USBUART_H
 
-#ifndef __PLATFORM_H
-#define __PLATFORM_H
+#include <libopencm3/usb/usbd.h>
+#include <libopencm3/usb/cdc.h>
 
-#include <ftdi.h>
+void usbuart_init(void);
 
-#ifndef WIN32
-#	include <alloca.h>
-#else
-#	define alloca __builtin_alloca
-#endif
-
-#define FT2232_VID	0x0403
-#define FT2232_PID	0x6010
-
-#define SET_RUN_STATE(state)
-#define SET_IDLE_STATE(state)
-#define SET_ERROR_STATE(state)
-
-#define PLATFORM_FATAL_ERROR(error)	abort()
-#define PLATFORM_SET_FATAL_ERROR_RECOVERY()
-
-extern struct ftdi_context *ftdic;
-
-void platform_buffer_flush(void);
-int platform_buffer_write(const uint8_t *data, int size);
-int platform_buffer_read(uint8_t *data, int size);
+void usbuart_set_line_coding(struct usb_cdc_line_coding *coding);
+void usbuart_usb_out_cb(usbd_device *dev, uint8_t ep);
+void usbuart_usb_in_cb(usbd_device *dev, uint8_t ep);
 
 #endif
-

@@ -29,9 +29,6 @@
  *   Programming manual - STM32F10xxx Flash memory microcontrollers
  */
 
-#include <stdlib.h>
-#include <string.h>
-
 #include "general.h"
 #include "adiv5.h"
 #include "target.h"
@@ -122,7 +119,7 @@ static const char stm32hd_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 #define DBGMCU_IDCODE	0xE0042000
 #define DBGMCU_IDCODE_F0	0x40015800
 
-uint16_t stm32f1_flash_write_stub[] = {
+static const uint16_t stm32f1_flash_write_stub[] = {
 // _start:
 	0x4809,	// ldr r0, [pc, #36] // _flashbase
 	0x490a,	// ldr r1, [pc, #40] // _addr

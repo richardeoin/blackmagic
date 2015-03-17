@@ -23,12 +23,10 @@
  */
 
 #include "general.h"
-#include "platform.h"
 #include "adiv5.h"
 #include "jtag_scan.h"
 #include "jtagtap.h"
-
-#include <stdlib.h>
+#include "morse.h"
 
 #define JTAGDP_ACK_OK	0x02
 #define JTAGDP_ACK_WAIT	0x01

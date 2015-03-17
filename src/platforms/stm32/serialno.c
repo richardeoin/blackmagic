@@ -1,7 +1,7 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2011  Black Sphere Technologies Ltd.
+ * Copyright (C) 2015  Black Sphere Technologies Ltd.
  * Written by Gareth McMullin <gareth@blacksphere.co.nz>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,33 +17,29 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "general.h"
 
-#ifndef __PLATFORM_H
-#define __PLATFORM_H
-
-#include <ftdi.h>
-
-#ifndef WIN32
-#	include <alloca.h>
+char *serialno_read(char *s)
+{
+#if defined(STM32F4)
+	volatile uint32_t *unique_id_p = (volatile uint32_t *)0x1FFF7A10;
 #else
-#	define alloca __builtin_alloca
+	volatile uint32_t *unique_id_p = (volatile uint32_t *)0x1FFFF7E8;
 #endif
+	uint32_t unique_id = *unique_id_p +
+			*(unique_id_p + 1) +
+			*(unique_id_p + 2);
+	int i;
 
-#define FT2232_VID	0x0403
-#define FT2232_PID	0x6010
+	/* Fetch serial number from chip's unique ID */
+	for(i = 0; i < 8; i++) {
+		s[7-i] = ((unique_id >> (4*i)) & 0xF) + '0';
+	}
+	for(i = 0; i < 8; i++)
+		if(s[i] > '9')
+			s[i] += 'A' - '9' - 1;
+	s[8] = 0;
 
-#define SET_RUN_STATE(state)
-#define SET_IDLE_STATE(state)
-#define SET_ERROR_STATE(state)
-
-#define PLATFORM_FATAL_ERROR(error)	abort()
-#define PLATFORM_SET_FATAL_ERROR_RECOVERY()
-
-extern struct ftdi_context *ftdic;
-
-void platform_buffer_flush(void);
-int platform_buffer_write(const uint8_t *data, int size);
-int platform_buffer_read(uint8_t *data, int size);
-
-#endif
+	return s;
+}
 

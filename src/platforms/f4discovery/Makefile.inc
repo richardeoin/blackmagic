@@ -19,11 +19,10 @@ SRC += 	cdcacm.c	\
 	platform.c	\
 	traceswo.c	\
 	usbuart.c	\
+	serialno.c	\
+	timing.c	\
 
 all:	blackmagic.bin
 
-blackmagic.bin:	blackmagic
-	$(OBJCOPY) -O binary $^ $@
-
 host_clean:
-	-rm blackmagic.bin
+	-$(Q)$(RM) blackmagic.bin

@@ -17,12 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stddef.h>
-#include <stdlib.h>
-#include "command.h"
 #include "general.h"
+#include "command.h"
 #include "adiv5.h"
 #include "target.h"
+#include "gdb_packet.h"
 
 #define LPC43XX_CHIPID	0x40043200
 #define ARM_CPUID	0xE000ED00
