@@ -143,9 +143,23 @@
 #define CORTEXM_DWT_FUNC_FUNC_WRITE	(6 << 0)
 #define CORTEXM_DWT_FUNC_FUNC_ACCESS	(7 << 0)
 
-bool cortexm_attach(struct target_s *target);
-void cortexm_detach(struct target_s *target);
-void cortexm_halt_resume(struct target_s *target, bool step);
+#define REG_SP		13
+#define REG_LR		14
+#define REG_PC		15
+#define REG_XPSR	16
+#define REG_MSP		17
+#define REG_PSP		18
+#define REG_SPECIAL	19
+
+#define ARM_THUMB_BREAKPOINT 0xBE00
+
+#define	CORTEXM_TOPT_INHIBIT_SRST (1 << 2)
+
+bool cortexm_attach(target *t);
+void cortexm_detach(target *t);
+void cortexm_halt_resume(target *t, bool step);
+int cortexm_run_stub(target *t, uint32_t loadaddr,
+                     uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 #endif
 

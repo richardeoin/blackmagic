@@ -33,6 +33,7 @@
 #include "general.h"
 #include "adiv5.h"
 #include "target.h"
+#include "cortexm.h"
 #include "command.h"
 #include "gdb_packet.h"
 
@@ -46,38 +47,11 @@ const struct command_s stm32f4_cmd_list[] = {
 };
 
 
-static int stm32f4_flash_erase(struct target_s *target, uint32_t addr, size_t len);
-static int stm32f4_flash_write(struct target_s *target, uint32_t dest,
-                               const uint8_t *src, size_t len);
+static int stm32f4_flash_erase(struct target_flash *f, uint32_t addr, size_t len);
+static int stm32f4_flash_write(struct target_flash *f,
+                               uint32_t dest, const void *src, size_t len);
 
 static const char stm32f4_driver_str[] = "STM32F4xx";
-
-static const char stm32f4_xml_memory_map[] = "<?xml version=\"1.0\"?>"
-/*	"<!DOCTYPE memory-map "
-	"             PUBLIC \"+//IDN gnu.org//DTD GDB Memory Map V1.0//EN\""
-	"                    \"http://sourceware.org/gdb/gdb-memory-map.dtd\">"*/
-	"<memory-map>"
-	"  <memory type=\"flash\" start=\"0x8000000\" length=\"0x10000\">"
-	"    <property name=\"blocksize\">0x4000</property>"
-	"  </memory>"
-	"  <memory type=\"flash\" start=\"0x8010000\" length=\"0x10000\">"
-	"    <property name=\"blocksize\">0x10000</property>"
-	"  </memory>"
-	"  <memory type=\"flash\" start=\"0x8020000\" length=\"0xE0000\">"
-	"    <property name=\"blocksize\">0x20000</property>"
-	"  </memory>"
-	"  <memory type=\"flash\" start=\"0x8100000\" length=\"0x10000\">"
-	"    <property name=\"blocksize\">0x4000</property>"
-	"  </memory>"
-	"  <memory type=\"flash\" start=\"0x8110000\" length=\"0x10000\">"
-	"    <property name=\"blocksize\">0x10000</property>"
-	"  </memory>"
-	"  <memory type=\"flash\" start=\"0x8120000\" length=\"0xE0000\">"
-	"    <property name=\"blocksize\">0x20000</property>"
-	"  </memory>"
-	"  <memory type=\"ram\" start=\"0x20000000\" length=\"0x30000\"/>"
-	"  <memory type=\"ram\" start=\"0x10000000\" length=\"0x10000\"/>"
-	"</memory-map>";
 
 /* Flash Program ad Erase Controller Register Map */
 #define FPEC_BASE	0x40023C00
@@ -120,61 +94,58 @@ static const char stm32f4_xml_memory_map[] = "<?xml version=\"1.0\"?>"
 
 /* This routine is uses word access.  Only usable on target voltage >2.7V */
 static const uint16_t stm32f4_flash_write_stub[] = {
-// _start:
-	0x480a,	// ldr r0, [pc, #40] // _flashbase
-	0x490b,	// ldr r1, [pc, #44] // _addr
-	0x467a, // mov r2, pc
-	0x3230, // adds r2, #48
-	0x4b0a, // ldr r3, [pc, #36] // _size
- 	0x4d07, // ldr r5, [pc, #28] // _cr
-// _next:
- 	0xb153, // cbz r3, _done
-	0x6105, // str r5, [r0, #16]
-	0x6814, // ldr r4, [r2]
-	0x600c, // str r4, [r1]
-// _wait:
-	0x89c4, // ldrb r4, [r0, #14]
-	0x2601, // movs r6, #1
-	0x4234, // tst r4, r6
-	0xd1fb, // bne _wait
-
-	0x3b04, // subs r3, #4
-	0x3104, // adds r1, #4
-	0x3204, // adds r2, #4
-	0xe7f3, // b _next
-// _done:
-	0xbe00, // bkpt
-	0x0000,
-// .org 0x28
-//_cr:
-	0x0201, 0x0000, //.word 0x00000201 (Value to write to FLASH_CR) */
-// _flashbase:
- 	0x3c00, 0x4002, // .word 0x40023c00 (FPEC_BASE)
-// _addr:
-// 	0x0000, 0x0000,
-// _size:
-// 	0x0000, 0x0000,
-// _data:
-// 	...
+#include "../flashstub/stm32f4.stub"
 };
 
-bool stm32f4_probe(struct target_s *target)
+#define SRAM_BASE 0x20000000
+#define STUB_BUFFER_BASE ALIGN(SRAM_BASE + sizeof(stm32f4_flash_write_stub), 4)
+
+struct stm32f4_flash {
+	struct target_flash f;
+	uint8_t base_sector;
+};
+
+static void stm32f4_add_flash(target *t,
+                              uint32_t addr, size_t length, size_t blocksize,
+                              uint8_t base_sector)
+{
+	struct stm32f4_flash *sf = calloc(1, sizeof(*sf));
+	struct target_flash *f = &sf->f;
+	f->start = addr;
+	f->length = length;
+	f->blocksize = blocksize;
+	f->erase = stm32f4_flash_erase;
+	f->write = stm32f4_flash_write;
+	f->align = 4;
+	f->erased = 0xff;
+	sf->base_sector = base_sector;
+	target_add_flash(t, f);
+}
+
+bool stm32f4_probe(target *t)
 {
 	uint32_t idcode;
 
-	idcode = target_mem_read32(target, DBGMCU_IDCODE);
+	idcode = target_mem_read32(t, DBGMCU_IDCODE);
 	switch(idcode & 0xFFF) {
+	case 0x419: /* 427/437 */
+		/* Second bank for 2M parts. */
+		stm32f4_add_flash(t, 0x8100000, 0x10000, 0x4000, 12);
+		stm32f4_add_flash(t, 0x8110000, 0x10000, 0x10000, 16);
+		stm32f4_add_flash(t, 0x8120000, 0xE0000, 0x20000, 17);
+		/* Fall through for stuff common to F40x/F41x */
 	case 0x411: /* Documented to be 0x413! This is what I read... */
 	case 0x413: /* F407VGT6 */
-	case 0x419: /* 427/437 */
 	case 0x423: /* F401 B/C RM0368 Rev.3 */
 	case 0x431: /* F411     RM0383 Rev.4 */
 	case 0x433: /* F401 D/E RM0368 Rev.3 */
-		target->xml_mem_map = stm32f4_xml_memory_map;
-		target->driver = stm32f4_driver_str;
-		target->flash_erase = stm32f4_flash_erase;
-		target->flash_write = stm32f4_flash_write;
-		target_add_commands(target, stm32f4_cmd_list, "STM32F4");
+		t->driver = stm32f4_driver_str;
+		target_add_ram(t, 0x10000000, 0x10000);
+		target_add_ram(t, 0x20000000, 0x30000);
+		stm32f4_add_flash(t, 0x8000000, 0x10000, 0x4000, 0);
+		stm32f4_add_flash(t, 0x8010000, 0x10000, 0x10000, 4);
+		stm32f4_add_flash(t, 0x8020000, 0xE0000, 0x20000, 5);
+		target_add_commands(t, stm32f4_cmd_list, "STM32F4");
 		return true;
 	}
 	return false;
@@ -189,84 +160,49 @@ static void stm32f4_flash_unlock(target *t)
 	}
 }
 
-static int stm32f4_flash_erase(struct target_s *target, uint32_t addr, size_t len)
+static int stm32f4_flash_erase(struct target_flash *f, uint32_t addr, size_t len)
 {
+	target *t = f->t;
 	uint16_t sr;
-	uint32_t cr;
-	uint32_t pagesize;
+	uint8_t sector = ((struct stm32f4_flash *)f)->base_sector +
+	                  (addr - f->start)/f->blocksize;
 
-	addr &= 0x07FFC000;
-
-	stm32f4_flash_unlock(target);
+	stm32f4_flash_unlock(t);
 
 	while(len) {
-		if (addr < 0x10000) { /* Sector 0..3 */
-			cr = (addr >> 11);
-			pagesize = 0x4000;
-		} else if (addr < 0x20000) { /* Sector 4 */
-			cr = (4 << 3);
-			pagesize = 0x10000;
-		} else if (addr < 0x100000) { /* Sector 5..11 */
-			cr = (((addr - 0x20000) >> 14) + 0x28);
-			pagesize = 0x20000;
-		} else { /* Sector > 11 ?? */
-			return -1;
-		}
-		cr |= FLASH_CR_EOPIE | FLASH_CR_ERRIE | FLASH_CR_SER;
+		uint32_t cr = FLASH_CR_EOPIE | FLASH_CR_ERRIE | FLASH_CR_SER |
+		              (sector << 3);
 		/* Flash page erase instruction */
-		target_mem_write32(target, FLASH_CR, cr);
+		target_mem_write32(t, FLASH_CR, cr);
 		/* write address to FMA */
-		target_mem_write32(target, FLASH_CR, cr | FLASH_CR_STRT);
+		target_mem_write32(t, FLASH_CR, cr | FLASH_CR_STRT);
 
 		/* Read FLASH_SR to poll for BSY bit */
-		while(target_mem_read32(target, FLASH_SR) & FLASH_SR_BSY)
-			if(target_check_error(target))
+		while(target_mem_read32(t, FLASH_SR) & FLASH_SR_BSY)
+			if(target_check_error(t))
 				return -1;
 
-		len -= pagesize;
-		addr += pagesize;
+		len -= f->blocksize;
+		sector++;
 	}
 
 	/* Check for error */
-	sr = target_mem_read32(target, FLASH_SR);
+	sr = target_mem_read32(t, FLASH_SR);
 	if(sr & SR_ERROR_MASK)
 		return -1;
 
 	return 0;
 }
 
-static int stm32f4_flash_write(struct target_s *target, uint32_t dest,
-                               const uint8_t *src, size_t len)
+static int stm32f4_flash_write(struct target_flash *f,
+                               uint32_t dest, const void *src, size_t len)
 {
-	uint32_t offset = dest % 4;
-	uint32_t words = (offset + len + 3) / 4;
-	uint32_t data[2 + words];
-	uint16_t sr;
-
-	/* Construct data buffer used by stub */
-	data[0] = dest - offset;
-	data[1] = words * 4;		/* length must always be a multiple of 4 */
-	data[2] = 0xFFFFFFFF;		/* pad partial words with all 1s to avoid */
-	data[words + 1] = 0xFFFFFFFF;	/* damaging overlapping areas */
-	memcpy((uint8_t *)&data[2] + offset, src, len);
-
-	/* Write stub and data to target ram and set PC */
-	target_mem_write(target, 0x20000000, stm32f4_flash_write_stub, 0x30);
-	target_mem_write(target, 0x20000030, data, sizeof(data));
-	target_pc_write(target, 0x20000000);
-	if(target_check_error(target))
-		return -1;
-
-	/* Execute the stub */
-	target_halt_resume(target, 0);
-	while(!target_halt_wait(target));
-
-	/* Check for error */
-	sr = target_mem_read32(target, FLASH_SR);
-	if(sr & SR_ERROR_MASK)
-		return -1;
-
-	return 0;
+	/* Write buffer to target ram call stub */
+	target_mem_write(f->t, SRAM_BASE, stm32f4_flash_write_stub,
+	                 sizeof(stm32f4_flash_write_stub));
+	target_mem_write(f->t, STUB_BUFFER_BASE, src, len);
+	return cortexm_run_stub(f->t, SRAM_BASE, dest,
+	                        STUB_BUFFER_BASE, len, 0);
 }
 
 static bool stm32f4_cmd_erase_mass(target *t)

@@ -7,23 +7,20 @@ MAKEFLAGS += --no-print-dir
 Q := @
 endif
 
-BUILDDATE := `date +"%Y%m%d"`
-
 OPT_FLAGS ?= -O2
 
 CFLAGS += -Wall -Wextra -Werror -Wno-char-subscripts\
-	$(OPT_FLAGS) -std=gnu99 -g3 -DBUILDDATE=\"$(BUILDDATE)\"\
+	$(OPT_FLAGS) -std=gnu99 -g3 -MD \
 	-I. -Iinclude -Iplatforms/common -I$(PLATFORM_DIR) \
-	-DVERSION_SUFFIX=\"`../scripts/setlocalversion`\" -MD
 
 SRC =			\
 	adiv5.c		\
 	adiv5_jtagdp.c	\
 	adiv5_swdp.c	\
-	arm7tdmi.c	\
 	command.c	\
 	cortexm.c	\
 	crc32.c		\
+	exception.c	\
 	gdb_if.c	\
 	gdb_main.c	\
 	gdb_packet.c	\
@@ -31,6 +28,7 @@ SRC =			\
 	jtag_scan.c	\
 	jtagtap.c	\
 	lmi.c		\
+	lpc_common.c	\
 	lpc11xx.c	\
 	lpc43xx.c	\
 	kinetis.c	\
@@ -43,7 +41,6 @@ SRC =			\
 	stm32f1.c	\
 	stm32f4.c	\
 	stm32l0.c	\
-	stm32l1.c	\
 	swdptap.c	\
 	target.c	\
 
@@ -51,9 +48,9 @@ include $(PLATFORM_DIR)/Makefile.inc
 
 OBJ = $(SRC:.c=.o)
 
-blackmagic: $(OBJ)
+blackmagic: include/version.h $(OBJ)
 	@echo "  LD      $@"
-	$(Q)$(CC) -o $@ $^ $(LDFLAGS)
+	$(Q)$(CC) -o $@ $(OBJ) $(LDFLAGS)
 
 %.o:	%.c
 	@echo "  CC      $<"
@@ -67,7 +64,7 @@ blackmagic: $(OBJ)
 	@echo "  OBJCOPY $@"
 	$(Q)$(OBJCOPY) -O ihex $^ $@
 
-.PHONY:	clean host_clean all_platforms
+.PHONY:	clean host_clean all_platforms FORCE
 
 clean:	host_clean
 	$(Q)echo "  CLEAN"
@@ -87,6 +84,10 @@ all_platforms:
 			mv blackmagic.bin blackmagic-$$PROBE_HOST.bin ;\
 		fi ;\
 	done
+
+include/version.h: FORCE
+	$(Q)echo "  GIT     include/version.h"
+	$(Q)echo "#define FIRMWARE_VERSION \"`git describe --dirty`\"" > $@
 
 -include *.d
 

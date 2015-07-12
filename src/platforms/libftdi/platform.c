@@ -19,8 +19,10 @@
  */
 #include "general.h"
 #include "gdb_if.h"
+#include "version.h"
 
 #include <assert.h>
+#include <sys/time.h>
 
 struct ftdi_context *ftdic;
 
@@ -157,6 +159,11 @@ void platform_init(int argc, char **argv)
 	if(cable_desc[index].cbus_ddr)
 		ftdi_init[8]= cable_desc[index].cbus_ddr;
 
+	printf("\nBlack Magic Probe (" FIRMWARE_VERSION ")\n");
+	printf("Copyright (C) 2015  Black Sphere Technologies Ltd.\n");
+	printf("License GPLv3+: GNU GPL version 3 or later "
+	       "<http://gnu.org/licenses/gpl.html>\n\n");
+
 	if(ftdic) {
 		ftdi_usb_close(ftdic);
 		ftdi_free(ftdic);
@@ -256,5 +263,23 @@ const char *platform_target_voltage(void)
 void platform_delay(uint32_t delay)
 {
 	usleep(delay * 100000);
+}
+
+static uint32_t timeout_time;
+static uint32_t time_ms(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+}
+
+void platform_timeout_set(uint32_t ms)
+{
+	timeout_time = time_ms() + ms;
+}
+
+bool platform_timeout_is_expired(void)
+{
+	return time_ms() > timeout_time;
 }
 

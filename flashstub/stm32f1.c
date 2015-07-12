@@ -1,7 +1,7 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2011  Black Sphere Technologies Ltd.
+ * Copyright (C) 2015  Black Sphere Technologies Ltd.
  * Written by Gareth McMullin <gareth@blacksphere.co.nz>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,30 +17,24 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "libopencm3/stm32/flash.h"
+#include "stub.h"
 
-#ifndef __PLATFORM_H
-#define __PLATFORM_H
+#define SR_ERROR_MASK 0x14
 
-#include <ftdi.h>
+void __attribute__((naked))
+stm32f1_flash_write_stub(uint16_t *dest, uint16_t *src, uint32_t size)
+{
+	for (int i; i < size; i += 2) {
+		FLASH_CR = FLASH_CR_PG;
+		*dest++ = *src++;
+		while (FLASH_SR & FLASH_SR_BSY)
+			;
+	}
 
-#ifndef WIN32
-#	include <alloca.h>
-#else
-#	define alloca __builtin_alloca
-#endif
+	if (FLASH_SR & SR_ERROR_MASK)
+		stub_exit(1);
 
-#define FT2232_VID	0x0403
-#define FT2232_PID	0x6010
-
-#define SET_RUN_STATE(state)
-#define SET_IDLE_STATE(state)
-#define SET_ERROR_STATE(state)
-
-extern struct ftdi_context *ftdic;
-
-void platform_buffer_flush(void);
-int platform_buffer_write(const uint8_t *data, int size);
-int platform_buffer_read(uint8_t *data, int size);
-
-#endif
+	stub_exit(0);
+}
 

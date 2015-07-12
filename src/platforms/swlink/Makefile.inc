@@ -2,6 +2,7 @@ CROSS_COMPILE ?= arm-none-eabi-
 CC = $(CROSS_COMPILE)gcc
 OBJCOPY = $(CROSS_COMPILE)objcopy
 
+OPT_FLAGS = -Os
 CFLAGS += -mcpu=cortex-m3 -mthumb \
 	-DSTM32F1 -DDISCOVERY_SWLINK -I../libopencm3/include \
 	-I platforms/stm32
@@ -15,7 +16,6 @@ LDFLAGS = $(LDFLAGS_BOOT) -Wl,-Ttext=0x8002000
 VPATH += platforms/stm32
 
 SRC += 	cdcacm.c	\
-	platform.c	\
 	usbuart.c 	\
 	serialno.c	\
 	timing.c	\
