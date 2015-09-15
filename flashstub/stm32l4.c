@@ -17,25 +17,37 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "libopencm3/stm32/flash.h"
 #include "stub.h"
+#include <stdint.h>
 
-#define SR_ERROR_MASK 0xF2
+/* No STM32L4 definitions in libopencm3 yet */
+#define FLASH_SR ((volatile uint32_t *) 0x40022010)
+#define FLASH_SR_EOP		(1 << 0)
+#define SR_ERROR_MASK		0xC3FA
+#define FLASH_SR_BSY		(1 << 16)
+
+#define FLASH_CR ((volatile uint32_t *) 0x40022014)
+#define FLASH_CR_PG			(1 << 0)
+#define FLASH_CR_EOPIE		(1 << 24)
+#define FLASH_CR_ERRIE		(1 << 25)
+#define FLASH_SR_EOP		(1 << 0)
 
 void __attribute__((naked))
-stm32f4_flash_write_stub(uint32_t *dest, uint32_t *src, uint32_t size)
+stm32l4_flash_write_stub(uint32_t *dest, uint32_t *src, uint32_t size)
 {
-	for (int i = 0; i < size; i += 4) {
-		FLASH_CR = FLASH_CR_PROGRAM_X32 | FLASH_CR_PG;
+	if ((size & 7) || ((uint32_t)dest & 7))
+		stub_exit(1);
+	for (int i = 0; i < size; i += 8) {
+		*FLASH_CR =  FLASH_CR_EOPIE | FLASH_CR_ERRIE | FLASH_CR_PG;
+		*dest++ = *src++;
 		*dest++ = *src++;
 		__asm("dsb");
-		while (FLASH_SR & FLASH_SR_BSY)
+		while (*FLASH_SR & FLASH_SR_BSY)
 			;
+		if ((*FLASH_SR & SR_ERROR_MASK) || !(*FLASH_SR & FLASH_SR_EOP))
+			stub_exit(1);
+		*FLASH_SR |= FLASH_SR_EOP;
 	}
-
-	if (FLASH_SR & SR_ERROR_MASK)
-		stub_exit(1);
-
+	*FLASH_CR = 0;
 	stub_exit(0);
 }
-
