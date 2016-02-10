@@ -56,6 +56,8 @@ lpc11xx_probe(target *t)
 	/* read the device ID register */
 	idcode = target_mem_read32(t, LPC11XX_DEVICE_ID);
 	switch (idcode) {
+	case 0x2500102B:	/* lpc1102 */
+	case 0x2548102B:	/* lpc1104 */
 	case 0x041E502B:
 	case 0x2516D02B:
 	case 0x0416502B:
@@ -123,4 +125,3 @@ static int lpc11xx_flash_write(struct target_flash *f,
 	}
 	return lpc_flash_write(f, dest, src, len);
 }
-
