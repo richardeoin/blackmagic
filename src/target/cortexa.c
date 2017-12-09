@@ -33,7 +33,7 @@
 #include "target.h"
 #include "target_internal.h"
 
-static char cortexa_driver_str[] = "ARM Cortex-A";
+static const char cortexa_driver_str[] = "ARM Cortex-A";
 
 static bool cortexa_attach(target *t);
 static void cortexa_detach(target *t);
@@ -60,7 +60,6 @@ static uint32_t read_gpreg(target *t, uint8_t regno);
 struct cortexa_priv {
 	uint32_t base;
 	ADIv5_AP_t *apb;
-	ADIv5_AP_t *ahb;
 	struct {
 		uint32_t r[16];
 		uint32_t cpsr;
@@ -68,8 +67,9 @@ struct cortexa_priv {
 		uint64_t d[16];
 	} reg_cache;
 	unsigned hw_breakpoint_max;
-	bool hw_breakpoint[16];
-	uint32_t bpc0;
+	uint16_t hw_breakpoint_mask;
+	uint32_t bcr0;
+	uint32_t bvr0;
 	bool mmu_fault;
 };
 
@@ -211,21 +211,9 @@ static uint32_t va_to_pa(target *t, uint32_t va)
 	if (par & 1)
 		priv->mmu_fault = true;
 	uint32_t pa = (par & ~0xfff) | (va & 0xfff);
-	DEBUG("%s: VA = 0x%08X, PAR = 0x%08X, PA = 0x%08X\n", __func__, va, par, pa);
+	DEBUG("%s: VA = 0x%08"PRIx32", PAR = 0x%08"PRIx32", PA = 0x%08"PRIX32"\n",
+              __func__, va, par, pa);
 	return pa;
-}
-
-static void cortexa_mem_read(target *t, void *dest, target_addr src, size_t len)
-{
-	/* Clean cache before reading */
-	for (uint32_t cl = src & ~(CACHE_LINE_LENGTH-1);
-	     cl < src + len; cl += CACHE_LINE_LENGTH) {
-		write_gpreg(t, 0, cl);
-		apb_write(t, DBGITR, MCR | DCCMVAC);
-	}
-
-	ADIv5_AP_t *ahb = ((struct cortexa_priv*)t->priv)->ahb;
-	adiv5_mem_read(ahb, dest, va_to_pa(t, src), len);
 }
 
 static void cortexa_slow_mem_read(target *t, void *dest, target_addr src, size_t len)
@@ -265,18 +253,6 @@ static void cortexa_slow_mem_read(target *t, void *dest, target_addr src, size_t
 	} else {
 		apb_read(t, DBGDTRTX);
 	}
-}
-
-static void cortexa_mem_write(target *t, target_addr dest, const void *src, size_t len)
-{
-	/* Clean and invalidate cache before writing */
-	for (uint32_t cl = dest & ~(CACHE_LINE_LENGTH-1);
-	     cl < dest + len; cl += CACHE_LINE_LENGTH) {
-		write_gpreg(t, 0, cl);
-		apb_write(t, DBGITR, MCR | DCCIMVAC);
-	}
-	ADIv5_AP_t *ahb = ((struct cortexa_priv*)t->priv)->ahb;
-	adiv5_mem_write(ahb, va_to_pa(t, dest), src, len);
 }
 
 static void cortexa_slow_mem_write_bytes(target *t, target_addr dest, const uint8_t *src, size_t len)
@@ -336,8 +312,7 @@ static void cortexa_slow_mem_write(target *t, target_addr dest, const void *src,
 static bool cortexa_check_error(target *t)
 {
 	struct cortexa_priv *priv = t->priv;
-	ADIv5_AP_t *ahb = priv->ahb;
-	bool err = (ahb && (adiv5_dp_error(ahb->dp)) != 0) || priv->mmu_fault;
+	bool err = priv->mmu_fault;
 	priv->mmu_fault = false;
 	return err;
 }
@@ -353,21 +328,8 @@ bool cortexa_probe(ADIv5_AP_t *apb, uint32_t debug_base)
 	t->priv = priv;
 	t->priv_free = free;
 	priv->apb = apb;
-	/* FIXME Find a better way to find the AHB.  This is likely to be
-	 * device specific. */
-	priv->ahb = adiv5_new_ap(apb->dp, 0);
-	adiv5_ap_ref(priv->ahb);
-	if ((priv->ahb->idr & 0xfffe00f) == 0x4770001) {
-		/* This is an AHB */
-		t->mem_read = cortexa_mem_read;
-		t->mem_write = cortexa_mem_write;
-	} else {
-		/* This is not an AHB, fall back to slow APB access */
-		adiv5_ap_unref(priv->ahb);
-		priv->ahb = NULL;
-		t->mem_read = cortexa_slow_mem_read;
-		t->mem_write = cortexa_slow_mem_write;
-	}
+	t->mem_read = cortexa_slow_mem_read;
+	t->mem_write = cortexa_slow_mem_write;
 
 	priv->base = debug_base;
 	/* Set up APB CSW, we won't touch this again */
@@ -412,7 +374,7 @@ bool cortexa_attach(target *t)
 	dbgdscr |= DBGDSCR_HDBGEN | DBGDSCR_ITREN;
 	dbgdscr = (dbgdscr & ~DBGDSCR_EXTDCCMODE_MASK) | DBGDSCR_EXTDCCMODE_STALL;
 	apb_write(t, DBGDSCR, dbgdscr);
-	DEBUG("DBGDSCR = 0x%08x\n", dbgdscr);
+	DEBUG("DBGDSCR = 0x%08"PRIx32"\n", dbgdscr);
 
 	target_halt_request(t);
 	tries = 10;
@@ -424,8 +386,9 @@ bool cortexa_attach(target *t)
 	/* Clear any stale breakpoints */
 	for(unsigned i = 0; i < priv->hw_breakpoint_max; i++) {
 		apb_write(t, DBGBCR(i), 0);
-		priv->hw_breakpoint[i] = 0;
 	}
+	priv->hw_breakpoint_mask = 0;
+	priv->bcr0 = 0;
 
 	platform_srst_set_val(false);
 
@@ -438,7 +401,6 @@ void cortexa_detach(target *t)
 
 	/* Clear any stale breakpoints */
 	for(unsigned i = 0; i < priv->hw_breakpoint_max; i++) {
-		priv->hw_breakpoint[i] = 0;
 		apb_write(t, DBGBCR(i), 0);
 	}
 
@@ -447,7 +409,16 @@ void cortexa_detach(target *t)
 	/* Invalidate cache */
 	apb_write(t, DBGITR, MCR | ICIALLU);
 
-	uint32_t dbgdscr = apb_read(t, DBGDSCR);
+	platform_timeout to;
+	platform_timeout_set(&to, 200);
+
+	/* Wait for instruction to complete */
+	uint32_t dbgdscr;
+	do {
+		dbgdscr = apb_read(t, DBGDSCR);
+	} while (!(dbgdscr & DBGDSCR_INSTRCOMPL) &&
+	         !platform_timeout_is_expired(&to));
+
 	/* Disable halting debug mode */
 	dbgdscr &= ~(DBGDSCR_HDBGEN | DBGDSCR_ITREN);
 	apb_write(t, DBGDSCR, dbgdscr);
@@ -604,7 +575,7 @@ static enum target_halt_reason cortexa_halt_poll(target *t, target_addr *watch)
 	if (!(dbgdscr & DBGDSCR_HALTED)) /* Not halted */
 		return TARGET_HALT_RUNNING;
 
-	DEBUG("%s: DBGDSCR = 0x%08x\n", __func__, dbgdscr);
+	DEBUG("%s: DBGDSCR = 0x%08"PRIx32"\n", __func__, dbgdscr);
 	/* Reenable DBGITR */
 	dbgdscr |= DBGDSCR_ITREN;
 	apb_write(t, DBGDSCR, dbgdscr);
@@ -631,14 +602,14 @@ void cortexa_halt_resume(target *t, bool step)
 	if (step) {
 		uint32_t addr = priv->reg_cache.r[15];
 		uint32_t bas = bp_bas(addr, (priv->reg_cache.cpsr & CPSR_THUMB) ? 2 : 4);
-		DEBUG("step 0x%08x  %x\n", addr, bas);
+		DEBUG("step 0x%08"PRIx32"  %"PRIx32"\n", addr, bas);
 		/* Set match any breakpoint */
 		apb_write(t, DBGBVR(0), priv->reg_cache.r[15] & ~3);
 		apb_write(t, DBGBCR(0), DBGBCR_INST_MISMATCH | bas |
 		                             DBGBCR_EN);
 	} else {
-		apb_write(t, DBGBVR(0), priv->hw_breakpoint[0] & ~3);
-		apb_write(t, DBGBCR(0), priv->bpc0);
+		apb_write(t, DBGBVR(0), priv->bvr0);
+		apb_write(t, DBGBCR(0), priv->bcr0);
 	}
 
 	/* Write back register cache */
@@ -646,8 +617,17 @@ void cortexa_halt_resume(target *t, bool step)
 
 	apb_write(t, DBGITR, MCR | ICIALLU); /* invalidate cache */
 
-	/* Disable DBGITR.  Not sure why, but RRQ is ignored otherwise. */
-	uint32_t dbgdscr = apb_read(t, DBGDSCR);
+	platform_timeout to;
+	platform_timeout_set(&to, 200);
+
+	/* Wait for instruction to complete */
+	uint32_t dbgdscr;
+	do {
+		dbgdscr = apb_read(t, DBGDSCR);
+	} while (!(dbgdscr & DBGDSCR_INSTRCOMPL) &&
+	         !platform_timeout_is_expired(&to));
+
+	 /* Disable DBGITR.  Not sure why, but RRQ is ignored otherwise. */
 	if (step)
 		dbgdscr |= DBGDSCR_INTDIS;
 	else
@@ -658,8 +638,9 @@ void cortexa_halt_resume(target *t, bool step)
 	do {
 		apb_write(t, DBGDRCR, DBGDRCR_CSE | DBGDRCR_RRQ);
 		dbgdscr = apb_read(t, DBGDSCR);
-		DEBUG("%s: DBGDSCR = 0x%08x\n", __func__, dbgdscr);
-	} while (!(dbgdscr & DBGDSCR_RESTARTED));
+		DEBUG("%s: DBGDSCR = 0x%08"PRIx32"\n", __func__, dbgdscr);
+	} while (!(dbgdscr & DBGDSCR_RESTARTED) &&
+	         !platform_timeout_is_expired(&to));
 }
 
 /* Breakpoints */
@@ -684,11 +665,11 @@ static int cortexa_breakwatch_set(target *t, struct breakwatch *bw)
 		case 2:
 			bw->reserved[0] = target_mem_read16(t, bw->addr);
 			target_mem_write16(t, bw->addr, 0xBE00);
-			return 0;
+			return target_check_error(t);
 		case 4:
 			bw->reserved[0] = target_mem_read32(t, bw->addr);
 			target_mem_write32(t, bw->addr, 0xE1200070);
-			return 0;
+			return target_check_error(t);
 		default:
 			return -1;
 		}
@@ -697,21 +678,23 @@ static int cortexa_breakwatch_set(target *t, struct breakwatch *bw)
 			return -1;
 
 		for (i = 0; i < priv->hw_breakpoint_max; i++)
-			if ((priv->hw_breakpoint[i] & 1) == 0)
+			if ((priv->hw_breakpoint_mask & (1 << i)) == 0)
 				break;
 
 		if (i == priv->hw_breakpoint_max)
 			return -1;
 
 		bw->reserved[0] = i;
+		priv->hw_breakpoint_mask |= (1 << i);
 
-		priv->hw_breakpoint[i] = true;
-
-		apb_write(t, DBGBVR(i), bw->addr & ~3);
-		uint32_t bpc =  bp_bas(bw->addr, bw->size) | DBGBCR_EN;
-		apb_write(t, DBGBCR(i), bpc);
-		if (i == 0)
-			priv->bpc0 = bpc;
+		uint32_t addr = va_to_pa(t, bw->addr);
+		uint32_t bcr =  bp_bas(addr, bw->size) | DBGBCR_EN;
+		apb_write(t, DBGBVR(i), addr & ~3);
+		apb_write(t, DBGBCR(i), bcr);
+		if (i == 0) {
+			priv->bcr0 = bcr;
+			priv->bvr0 = addr & ~3;
+		}
 
 		return 0;
 	default:
@@ -728,18 +711,18 @@ static int cortexa_breakwatch_clear(target *t, struct breakwatch *bw)
 		switch (bw->size) {
 		case 2:
 			target_mem_write16(t, bw->addr, i);
-			return 0;
+			return target_check_error(t);
 		case 4:
 			target_mem_write32(t, bw->addr, i);
-			return 0;
+			return target_check_error(t);
 		default:
 			return -1;
 		}
 	case TARGET_BREAK_HARD:
-		priv->hw_breakpoint[i] = false;
+		priv->hw_breakpoint_mask &= ~(1 << i);
 		apb_write(t, DBGBCR(i), 0);
 		if (i == 0)
-			priv->bpc0 = 0;
+			priv->bcr0 = 0;
 		return 0;
 	default:
 		return 1;

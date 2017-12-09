@@ -33,6 +33,7 @@
 #include "target.h"
 #include "command.h"
 #include "crc32.h"
+#include "morse.h"
 
 enum gdb_signal {
 	GDB_SIGINT = 2,
@@ -95,7 +96,6 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 	int size;
 	bool single_step = false;
 
-	DEBUG("Entring GDB protocol main loop\n");
 	/* GDB protocol main loop */
 	while(1) {
 		SET_IDLE_STATE(1);
@@ -115,6 +115,10 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			uint32_t addr, len;
 			ERROR_IF_NO_TARGET();
 			sscanf(pbuf, "m%" SCNx32 ",%" SCNx32, &addr, &len);
+			if (len > sizeof(pbuf) / 2) {
+				gdb_putpacketz("E02");
+				break;
+			}
 			DEBUG("m packet: addr = %" PRIx32 ", len = %" PRIx32 "\n", addr, len);
 			uint8_t mem[len];
 			if (target_mem_read(cur_target, mem, addr, len))
@@ -136,6 +140,10 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			int hex;
 			ERROR_IF_NO_TARGET();
 			sscanf(pbuf, "M%" SCNx32 ",%" SCNx32 ":%n", &addr, &len, &hex);
+			if (len > (unsigned)(size - hex) / 2) {
+				gdb_putpacketz("E02");
+				break;
+			}
 			DEBUG("M packet: addr = %" PRIx32 ", len = %" PRIx32 "\n", addr, len);
 			uint8_t mem[len];
 			unhexify(mem, pbuf + hex, len);
@@ -147,7 +155,7 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			}
 		case 's':	/* 's [addr]': Single step [start at addr] */
 			single_step = true;
-			// Fall through to resume target
+			/* fall through */
 		case 'c':	/* 'c [addr]': Continue [at addr] */
 			if(!cur_target) {
 				gdb_putpacketz("X1D");
@@ -157,7 +165,7 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			target_halt_resume(cur_target, single_step);
 			SET_RUN_STATE(1);
 			single_step = false;
-			// Fall through to wait for target halt
+			/* fall through */
 		case '?': {	/* '?': Request reason for target halt */
 			/* This packet isn't documented as being mandatory,
 			 * but GDB doesn't work without it. */
@@ -183,6 +191,7 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			switch (reason) {
 			case TARGET_HALT_ERROR:
 				gdb_putpacket_f("X%02X", GDB_SIGLOST);
+				morse("TARGET LOST.", true);
 				break;
 			case TARGET_HALT_REQUEST:
 				gdb_putpacket_f("T%02X", GDB_SIGINT);
@@ -250,6 +259,10 @@ int gdb_main_loop(struct target_controller *tc, bool in_syscall)
 			int bin;
 			ERROR_IF_NO_TARGET();
 			sscanf(pbuf, "X%" SCNx32 ",%" SCNx32 ":%n", &addr, &len, &bin);
+			if (len > (unsigned)(size - bin)) {
+				gdb_putpacketz("E02");
+				break;
+			}
 			DEBUG("X packet: addr = %" PRIx32 ", len = %" PRIx32 "\n", addr, len);
 			if (target_mem_write(cur_target, addr, pbuf+bin, len))
 				gdb_putpacketz("E01");

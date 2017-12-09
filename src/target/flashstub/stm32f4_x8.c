@@ -1,8 +1,8 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2015  Black Sphere Technologies Ltd.
- * Written by Gareth McMullin <gareth@blacksphere.co.nz>
+ * Copyright (C) 2017  Black Sphere Technologies Ltd.
+ * Written by Gordon Smith <gordonhj.smith@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,24 +17,28 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "libopencm3/stm32/flash.h"
+#include "stub.h"
 
-#include "general.h"
-#include "exception.h"
+#define SR_ERROR_MASK 0xF2
 
-struct exception *innermost_exception;
-
-void raise_exception(uint32_t type, const char *msg)
+void __attribute__((naked))
+stm32f4_flash_write_x8_stub(uint32_t *dest, uint32_t *src, uint32_t size)
 {
-	struct exception *e;
-	DEBUG("Exception: %s\n", msg);
-	for (e = innermost_exception; e; e = e->outer) {
-		if (e->mask & type) {
-			e->type = type;
-			e->msg = msg;
-			innermost_exception = e->outer;
-			longjmp(e->jmpbuf, type);
-		}
+	uint8_t *b_dest, *b_src;
+	b_dest = (void *)dest;
+	b_src = (void *)src;
+	for (int i = 0; i < size; i += 1) {
+		FLASH_CR = FLASH_CR_PROGRAM_X8 | FLASH_CR_PG;
+		*b_dest++ = *b_src++;
+		__asm("dsb");
+		while (FLASH_SR & FLASH_SR_BSY)
+			;
 	}
-	abort();
+
+	if (FLASH_SR & SR_ERROR_MASK)
+		stub_exit(1);
+
+	stub_exit(0);
 }
 

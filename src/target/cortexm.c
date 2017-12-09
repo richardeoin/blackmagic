@@ -34,7 +34,7 @@
 
 #include <unistd.h>
 
-static char cortexm_driver_str[] = "ARM Cortex-M";
+static const char cortexm_driver_str[] = "ARM Cortex-M";
 
 static bool cortexm_vector_catch(target *t, int argc, char *argv[]);
 
@@ -78,6 +78,9 @@ struct cortexm_priv {
 	unsigned hw_breakpoint_max;
 	/* Copy of DEMCR for vector-catch */
 	uint32_t demcr;
+	/* Cache parameters */
+	bool has_cache;
+	uint32_t dcache_minline;
 };
 
 /* Register number tables */
@@ -179,13 +182,40 @@ ADIv5_AP_t *cortexm_ap(target *t)
 	return ((struct cortexm_priv *)t->priv)->ap;
 }
 
+static void cortexm_cache_clean(target *t, target_addr addr, size_t len, bool invalidate)
+{
+	struct cortexm_priv *priv = t->priv;
+	if (!priv->has_cache || (priv->dcache_minline == 0))
+		return;
+	uint32_t cache_reg = invalidate ? CORTEXM_DCCIMVAC : CORTEXM_DCCMVAC;
+	size_t minline = priv->dcache_minline;
+
+	/* flush data cache for RAM regions that intersect requested region */
+	target_addr mem_end = addr + len; /* following code is NOP if wraparound */
+	/* requested region is [src, src_end) */
+	for (struct target_ram *r = t->ram; r; r = r->next) {
+		target_addr ram = r->start;
+		target_addr ram_end = r->start + r->length;
+		/* RAM region is [ram, ram_end) */
+		if (addr > ram)
+			ram = addr;
+		if (mem_end < ram_end)
+			ram_end = mem_end;
+		/* intersection is [ram, ram_end) */
+		for (ram &= ~(minline-1); ram < ram_end; ram += minline)
+			adiv5_mem_write(cortexm_ap(t), cache_reg, &ram, 4);
+	}
+}
+
 static void cortexm_mem_read(target *t, void *dest, target_addr src, size_t len)
 {
+	cortexm_cache_clean(t, src, len, false);
 	adiv5_mem_read(cortexm_ap(t), dest, src, len);
 }
 
 static void cortexm_mem_write(target *t, target_addr dest, const void *src, size_t len)
 {
+	cortexm_cache_clean(t, dest, len, true);
 	adiv5_mem_write(cortexm_ap(t), dest, src, len);
 }
 
@@ -251,6 +281,15 @@ bool cortexm_probe(ADIv5_AP_t *ap)
 	priv->demcr = CORTEXM_DEMCR_TRCENA | CORTEXM_DEMCR_VC_HARDERR |
 			CORTEXM_DEMCR_VC_CORERESET;
 
+	/* Check cache type */
+	uint32_t ctr = target_mem_read32(t, CORTEXM_CTR);
+	if ((ctr >> 29) == 4) {
+		priv->has_cache = true;
+		priv->dcache_minline = 4 << (ctr & 0xf);
+	} else {
+		target_check_error(t);
+	}
+
 #define PROBE(x) \
 	do { if ((x)(t)) return true; else target_check_error(t); } while (0)
 
@@ -262,6 +301,7 @@ bool cortexm_probe(ADIv5_AP_t *ap)
 	PROBE(lpc15xx_probe);
 	PROBE(lpc43xx_probe);
 	PROBE(sam3x_probe);
+	PROBE(sam4l_probe);
 	PROBE(nrf51_probe);
 	PROBE(samd_probe);
 	PROBE(lmi_probe);
@@ -442,6 +482,11 @@ static void cortexm_reset(target *t)
 	target_mem_write32(t, CORTEXM_AIRCR,
 	                   CORTEXM_AIRCR_VECTKEY | CORTEXM_AIRCR_SYSRESETREQ);
 
+	/* If target needs to do something extra (see Atmel SAM4L for example) */
+	if (t->extended_reset != NULL) {
+		t->extended_reset(t);
+	}
+
 	/* Poll for release from reset */
 	while (target_mem_read32(t, CORTEXM_DHCSR) & CORTEXM_DHCSR_S_RESET_ST);
 
@@ -545,6 +590,9 @@ void cortexm_halt_resume(target *t, bool step)
 			cortexm_pc_write(t, pc + 2);
 	}
 
+	if (priv->has_cache)
+		target_mem_write32(t, CORTEXM_ICIALLU, 0);
+
 	target_mem_write32(t, CORTEXM_DHCSR, dhcsr);
 }
 
@@ -627,9 +675,16 @@ int cortexm_run_stub(target *t, uint32_t loadaddr,
 		return -1;
 
 	/* Execute the stub */
+	enum target_halt_reason reason;
 	cortexm_halt_resume(t, 0);
-	while (!cortexm_halt_poll(t, NULL))
+	while ((reason = cortexm_halt_poll(t, NULL)) == TARGET_HALT_RUNNING)
 		;
+
+	if (reason == TARGET_HALT_ERROR)
+		raise_exception(EXCEPTION_ERROR, "Target lost in stub");
+
+	if (reason != TARGET_HALT_BREAKPOINT)
+		return -2;
 
 	uint32_t pc = cortexm_pc_read(t);
 	uint16_t bkpt_instr = target_mem_read16(t, pc);
@@ -841,8 +896,8 @@ static int cortexm_hostio_request(target *t)
 	uint32_t syscall = arm_regs[0];
 	int32_t ret = 0;
 
-	DEBUG("syscall 0x%x (%x %x %x %x)\n", syscall,
-			params[0], params[1], params[2], params[3]);
+	DEBUG("syscall 0"PRIx32"%"PRIx32" (%"PRIx32" %"PRIx32" %"PRIx32" %"PRIx32")\n",
+              syscall, params[0], params[1], params[2], params[3]);
 	switch (syscall) {
 	case SYS_OPEN:{	/* open */
 		/* Translate stupid fopen modes to open flags.

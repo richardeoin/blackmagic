@@ -1,7 +1,7 @@
 /*
  * This file is part of the Black Magic Debug project.
  *
- * Copyright (C) 2015  Black Sphere Technologies Ltd.
+ * Copyright (C) 2017  Black Sphere Technologies Ltd.
  * Written by Gareth McMullin <gareth@blacksphere.co.nz>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,24 +17,21 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <stdint.h>
+#include "stub.h"
 
-#include "general.h"
-#include "exception.h"
+/* Non-Volatile Memory Controller (NVMC) Registers */
+#define NVMC           ((volatile uint32_t *)0x4001E000)
+#define NVMC_READY     NVMC[0x100]
 
-struct exception *innermost_exception;
-
-void raise_exception(uint32_t type, const char *msg)
+void __attribute__((naked))
+nrf51_flash_write_stub(volatile uint32_t *dest, uint32_t *src, uint32_t size)
 {
-	struct exception *e;
-	DEBUG("Exception: %s\n", msg);
-	for (e = innermost_exception; e; e = e->outer) {
-		if (e->mask & type) {
-			e->type = type;
-			e->msg = msg;
-			innermost_exception = e->outer;
-			longjmp(e->jmpbuf, type);
-		}
+	for (int i; i < size; i += 4) {
+		*dest++ = *src++;
+		while (!(NVMC_READY & 1))
+			;
 	}
-	abort();
-}
 
+	stub_exit(0);
+}
